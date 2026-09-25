@@ -57,3 +57,48 @@ let seatLayout=get('seatLayout:'+classId,'rows');function applySeatLayout(){if(!
 function drawSavedPlans(){if(!$('#savedSeatPlans'))return;const cid=+$('#seatClass').value||classId;const plans=json('seatPlans:'+cid,[]);$('#savedSeatPlans').innerHTML='<option value="">Saved arrangements…</option>'+plans.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join('')}
 if($('#saveSeatPlan'))$('#saveSeatPlan').onclick=()=>{const cid=+$('#seatClass').value||classId;const name=$('#seatPlanName').value.trim()||'Seating plan';let plans=json('seatPlans:'+cid,[]);plans.push({name,layout:seatLayout,seats:json('seats:'+cid,[])});save('seatPlans:'+cid,plans);$('#seatPlanName').value='';drawSavedPlans()};if($('#savedSeatPlans'))$('#savedSeatPlans').onchange=()=>{const cid=+$('#seatClass').value||classId;const p=json('seatPlans:'+cid,[])[+$('#savedSeatPlans').value];if(!p)return;save('seats:'+cid,p.seats||[]);seatLayout=p.layout||'rows';save('seatLayout:'+cid,seatLayout);drawSeats();applySeatLayout()};applySeatLayout();drawSavedPlans();
 if($('#applySchoolDay')){$('#dayStart').value=get('schoolDayStart','08:45');$('#dayEnd').value=get('schoolDayEnd','15:30');$('#slotLength').value=get('schoolSlot','60');$('#applySchoolDay').onclick=()=>{save('schoolDayStart',$('#dayStart').value);save('schoolDayEnd',$('#dayEnd').value);save('schoolSlot',$('#slotLength').value);alert('School-day settings saved. The next timetable engine will generate individual named periods and weekday variations from these settings.')};}
+
+
+// --- Home dashboard: today's lesson ---
+function updateHomeDashboard() {
+  const box = document.querySelector('#todayLessons');
+  if (!box) return;
+
+  const today = new Date();
+  const todayKey =
+    today.getFullYear() + '-' +
+    String(today.getMonth() + 1).padStart(2, '0') + '-' +
+    String(today.getDate()).padStart(2, '0');
+
+  const lessonDate = document.querySelector('#lessonDate')?.value || '';
+
+  const lessonClass =
+    document.querySelector('[data-field="lesson-class"]')?.value?.trim() || '';
+
+  const objective =
+    document.querySelector('[data-field="lesson-objective"]')?.value?.trim() || '';
+
+  if (lessonDate === todayKey && (lessonClass || objective)) {
+    box.innerHTML = `
+      <div class="miniRow">
+        <span class="timeTag">Today</span>
+        <span>${lessonClass || objective || "Today's lesson"}</span>
+        <button data-go="today">→</button>
+      </div>
+    `;
+  } else {
+    box.innerHTML = `
+      <div class="miniRow">
+        <span class="timeTag">Today</span>
+        <span>No lesson planned yet</span>
+        <button data-go="today">+</button>
+      </div>
+    `;
+  }
+}
+
+document.querySelector('#lessonDate')?.addEventListener('change', updateHomeDashboard);
+document.querySelector('[data-field="lesson-class"]')?.addEventListener('input', updateHomeDashboard);
+document.querySelector('[data-field="lesson-objective"]')?.addEventListener('input', updateHomeDashboard);
+
+updateHomeDashboard();
