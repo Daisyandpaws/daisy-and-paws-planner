@@ -21,3 +21,4 @@ AUTH UPDATE (25 Sep 2026)
 - Planner data is isolated per signed-in account on each browser/device.
 - Supabase project URL and publishable browser key are included in auth.js (publishable key only; no secret/service-role key).
 - Email confirmation remains enabled in Supabase.
+Production redeploy – 25 September 2026
