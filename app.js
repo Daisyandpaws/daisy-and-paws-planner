@@ -136,3 +136,5 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
   alert('Your weekly planning has been imported successfully.');
   return;
 }
+  });
+});
