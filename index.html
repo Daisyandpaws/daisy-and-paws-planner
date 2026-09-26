@@ -22,7 +22,19 @@
 <div class="dashFooter"><div class="encourage">🐾 Better days are always possible. ♡</div><div class="encourage">🌿 Keep going, you're doing amazing ♡</div></div>
 </div></section>
 <section class="page" id="year"><p class="eyebrow">2026 / 27</p><h1 class="script">Year at a Glance ♡</h1><div class="wash sage"></div><div class="monthnav"><button id="prevMonth">←</button><b id="monthLabel"></b><button id="nextMonth">→</button></div><div class="calendar" id="calendar"></div><div class="paper"><div class="grid2"><label>Selected date<input id="selectedDate" type="date"/></label><label>Important date / reminder<input id="calendarNote" placeholder="e.g. Parents' evening"/></label></div></div></section>
-<section class="page" id="term"><p class="eyebrow">BIG PICTURE PLANNING</p><h1 class="script">Termly Planning ♡</h1><div class="wash blush"></div><div class="paper"><div class="grid2"><label>Term<select data-field="term-name"><option>Autumn</option><option>Spring</option><option>Summer</option></select></label><label>Key focus<input data-field="term-focus"/></label></div><label>Key objectives<textarea data-field="term-objectives"></textarea></label><label>Curriculum / topics<textarea data-field="term-topics"></textarea></label><label>Important dates &amp; events<textarea data-field="term-dates"></textarea></label><label>Notes<textarea data-field="term-notes"></textarea></label><div class="importBox"><span class="statusChip">NEW</span><h2 class="script small">Import School Planning ♡</h2><p class="gentle">Bring existing planning into Daisy & Paws instead of typing it again. This beta previews text, CSV and JSON files; Word, PDF, Excel and school cloud connections are the next secure integration stage.</p><input id="planningFile" type="file" accept=".txt,.csv,.json,text/plain,text/csv,application/json"><textarea id="planningPreview" placeholder="Imported planning preview…"></textarea><div class="planningImportChoices">
+<section class="page" id="term"><p class="eyebrow">BIG PICTURE PLANNING</p><h1 class="script">Termly Planning ♡</h1><div class="wash blush"></div><div class="paper"><div class="grid2"><label>Term<select data-field="term-name"><option>Autumn</option><option>Spring</option><option>Summer</option></select></label><label>Key focus<input data-field="term-focus"/></label></div><label>Key objectives<textarea data-field="term-objectives"></textarea></label><label>Curriculum / topics<textarea data-field="term-topics"></textarea></label><label>Important dates &amp; events<textarea data-field="term-dates"></textarea></label><label>Notes<textarea data-field="term-notes"></textarea></label>
+  <div class="importBox"><span class="statusChip">NEW</span><h2 class="script small">Import School Planning ♡</h2><p class="gentle">Bring existing planning into Daisy & Paws instead of typing it again. This beta previews text, CSV and JSON files; Word, PDF, Excel and school cloud connections are the next secure integration stage.</p><input id="planningFile" type="file" accept=".txt,.csv,.json,text/plain,text/csv,application/json"><textarea id="planningPreview" placeholder="Imported planning preview…"></textarea><div class="planningImportChoices">
+    <div id="planningAnalysis" class="planningAnalysis" hidden>
+  <h3>Planning recognised 🌼</h3>
+  <p class="gentle">Daisy & Paws will check your document before anything is added to your planner.</p>
+
+  <div class="planningDetected">
+    <div><strong>Year group</strong><span id="detectedYear">—</span></div>
+    <div><strong>Subject</strong><span id="detectedSubject">—</span></div>
+    <div><strong>Planning type</strong><span id="detectedType">—</span></div>
+    <div><strong>Week beginning</strong><span id="detectedWeek">—</span></div>
+  </div>
+</div>
 <button type="button" class="primary planningImportBtn" data-plan-type="yearly">Use in yearly planning</button>
 <button type="button" class="primary planningImportBtn" data-plan-type="termly">Use in termly planning</button>
 <button type="button" class="primary planningImportBtn" data-plan-type="weekly">Use in weekly planning</button>
