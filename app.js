@@ -98,4 +98,11 @@ function updateHomeDashboard() {
 
 setTimeout(updateHomeDashboard, 100);
 
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('#todayLessons [data-go="today"]');
+  if (btn) {
+    go('today');
+  }
+});
+
 })();
