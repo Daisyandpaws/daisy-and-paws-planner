@@ -233,59 +233,78 @@ if (!foundDays) {
 
    if (weekRangeMatch) {
     const firstWeek = weekRangeMatch[1];
-    const lastWeek = weekRangeMatch[2];
+    const secondWeek = weekRangeMatch[2];
 
-    const chosenWeek = window.prompt(
+    const chosenWeek = prompt(
       'Daisy & Paws has recognised planning for Weeks ' +
-      firstWeek + '–' + lastWeek +
+      firstWeek + '–' + secondWeek +
       '.\n\nWhich week would you like to preview?\n\nEnter ' +
-      firstWeek + ' or ' + lastWeek + ':'
+      firstWeek + ' or ' + secondWeek + ':'
     );
 
-    if (chosenWeek === null) {
-      return;
-    }
+    if (chosenWeek === null) return;
 
     const choice = chosenWeek.trim();
-
-    if (choice !== firstWeek && choice !== lastWeek) {
-      alert('Please enter ' + firstWeek + ' or ' + lastWeek + '.');
+    if (choice !== firstWeek && choice !== secondWeek) {
+      alert('Please enter ' + firstWeek + ' or ' + secondWeek + '.');
       return;
     }
 
-    // Match only a Week heading on its own line, so phrases such as
-    // "Spelling Week 5" are not mistaken for the main week section.
-    const escapedWeek = choice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const weekHeading = new RegExp(
-      '^\\s*Week\\s*' + escapedWeek + '\\s*:?\\s*$',
-      'im'
-    );
-    const headingMatch = weekHeading.exec(text);
+    // Find a real Week N heading. Word/table imports may leave pipes around
+    // headings, so accept lines such as "Week 5" or "| Week 5 |", but reject
+    // phrases such as "Spelling Week 5".
+    const headingRegex = /\bWeek\s*(\d+)\b/gi;
+    const headings = [];
+    let headingMatch;
 
-    if (!headingMatch) {
+    while ((headingMatch = headingRegex.exec(text)) !== null) {
+      const lineStart = text.lastIndexOf('\n', headingMatch.index - 1) + 1;
+      const beforeOnLine = text.slice(lineStart, headingMatch.index);
+      const afterIndex = headingMatch.index + headingMatch[0].length;
+      const lineEndPos = text.indexOf('\n', afterIndex);
+      const lineEnd = lineEndPos === -1 ? text.length : lineEndPos;
+      const afterOnLine = text.slice(afterIndex, lineEnd);
+
+      // A standalone heading can have whitespace, punctuation or table pipes,
+      // but no ordinary words before or after it on the same line.
+      const cleanEdge = value => value.replace(/[\s|:;,.\-–—]/g, '');
+      if (cleanEdge(beforeOnLine) === '' && cleanEdge(afterOnLine) === '') {
+        headings.push({
+          week: headingMatch[1],
+          start: lineEndPos === -1 ? afterIndex : lineEndPos + 1
+        });
+      }
+    }
+
+    const selectedHeadingIndex = headings.findIndex(h => h.week === choice);
+
+    if (selectedHeadingIndex === -1) {
       alert(
-        'Daisy & Paws found Weeks ' + firstWeek + '–' + lastWeek +
-        ', but could not find a standalone Week ' + choice + ' heading.'
+        'Daisy & Paws found Weeks ' + firstWeek + '–' + secondWeek +
+        ', but could not identify the main Week ' + choice +
+        ' section yet.\n\nNothing has been added to your planner.'
       );
       return;
     }
 
-    const sectionStart = headingMatch.index + headingMatch[0].length;
-    const remainingText = text.slice(sectionStart);
-    const nextWeekHeading = /^\s*Week\s*\d+\s*:?\s*$/im.exec(remainingText);
-    const sectionEnd = nextWeekHeading ? nextWeekHeading.index : remainingText.length;
-    const weekContent = remainingText.slice(0, sectionEnd).trim();
+    const sectionStart = headings[selectedHeadingIndex].start;
+    const nextHeading = headings.slice(selectedHeadingIndex + 1)
+      .find(h => h.week !== choice);
+    const sectionEnd = nextHeading ? nextHeading.start : text.length;
+    const weekContent = text.slice(sectionStart, sectionEnd).trim();
 
     if (!weekContent) {
-      alert('Week ' + choice + ' was found, but there is no planning beneath that heading.');
+      alert(
+        'Daisy & Paws found the Week ' + choice +
+        ' heading, but there was no planning underneath it.\n\nNothing has been added to your planner.'
+      );
       return;
     }
 
-    // Preview only. Nothing is written to the planner at this stage.
     alert(
       'Week ' + choice + ' preview\n\n' +
-      weekContent.slice(0, 2500) +
-      (weekContent.length > 2500 ? '\n\n…preview shortened…' : '') +
+      weekContent.slice(0, 3500) +
+      (weekContent.length > 3500 ? '\n\n[Preview shortened]' : '') +
       '\n\nNothing has been added to your planner yet.'
     );
   } else if (singleWeekMatch) {
