@@ -50,7 +50,7 @@ if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))navigator.se
 // Pre-release 5 dashboard enhancements
 const dd=document.querySelector('#dashDate'); if(dd){dd.textContent=new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date());}
 document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dashTask:'+i;cb.checked=localStorage.getItem(k)==='1';cb.addEventListener('change',()=>localStorage.setItem(k,cb.checked?'1':'0'));});
-})();
+
 // Commercial Beta 2 — visible feature additions
 const planningFile=$('#planningFile'); if(planningFile) planningFile.onchange=async()=>{const f=planningFile.files[0];if(!f)return;try{$('#planningPreview').value=await f.text()}catch(e){$('#planningPreview').value='This file needs the secure document importer planned for the production release.'}};
 if($('#usePlanningImport')) $('#usePlanningImport').onclick=()=>{const v=$('#planningPreview').value.trim();if(!v)return alert('Choose a planning file first.');const el=document.querySelector('[data-field="term-notes"]');el.value=(el.value?el.value+'\n\n':'')+'IMPORTED SCHOOL PLANNING\n'+v;save('field:term-notes',el.value);alert('Imported into Termly Planning. Please review and edit before using it.')};
