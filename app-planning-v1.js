@@ -79,7 +79,7 @@ if(planningFile){
     }
   };
 }
-
+// Planning import organiser
 if($('#usePlanningImport')){
   $('#usePlanningImport').onclick=()=>{
     const preview=$('#planningPreview');
@@ -90,11 +90,36 @@ if($('#usePlanningImport')){
       return;
     }
 
-    save('planningImportRaw',text);
+    const type=prompt(
+      'What type of planning are you importing?\n\nType: yearly, termly, weekly or daily'
+    );
 
-    alert('Planning uploaded successfully. Next we will organise it into Yearly, Termly, Weekly and Daily planning.');
+    if(!type) return;
+
+    const planType=type.trim().toLowerCase();
+
+    const destinations={
+      yearly:'yearlyPlanning',
+      termly:'termPlanning',
+      weekly:'weeklyPlanning',
+      daily:'dailyPlanning'
+    };
+
+    if(!destinations[planType]){
+      alert('Please enter yearly, termly, weekly or daily.');
+      return;
+    }
+
+    save('planningImportRaw',text);
+    save('planningImportType',planType);
+    save(destinations[planType],text);
+
+    alert(
+      'Your '+planType+' planning has been imported successfully.'
+    );
   };
 }
+
 let seatLayout=get('seatLayout:'+classId,'rows');function applySeatLayout(){if(!$('#seatGrid'))return;$('#seatGrid').className='seats '+seatLayout;$$('[data-layout]').forEach(b=>b.classList.toggle('active',b.dataset.layout===seatLayout))}$$('[data-layout]').forEach(b=>b.onclick=()=>{seatLayout=b.dataset.layout;save('seatLayout:'+($('#seatClass').value||classId),seatLayout);applySeatLayout()});const oldSeatChange=$('#seatClass').onchange;$('#seatClass').onchange=()=>{if(oldSeatChange)oldSeatChange();seatLayout=get('seatLayout:'+$('#seatClass').value,'rows');applySeatLayout();drawSavedPlans()};
 function drawSavedPlans(){if(!$('#savedSeatPlans'))return;const cid=+$('#seatClass').value||classId;const plans=json('seatPlans:'+cid,[]);$('#savedSeatPlans').innerHTML='<option value="">Saved arrangements…</option>'+plans.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join('')}
 if($('#saveSeatPlan'))$('#saveSeatPlan').onclick=()=>{const cid=+$('#seatClass').value||classId;const name=$('#seatPlanName').value.trim()||'Seating plan';let plans=json('seatPlans:'+cid,[]);plans.push({name,layout:seatLayout,seats:json('seats:'+cid,[])});save('seatPlans:'+cid,plans);$('#seatPlanName').value='';drawSavedPlans()};if($('#savedSeatPlans'))$('#savedSeatPlans').onchange=()=>{const cid=+$('#seatClass').value||classId;const p=json('seatPlans:'+cid,[])[+$('#savedSeatPlans').value];if(!p)return;save('seats:'+cid,p.seats||[]);seatLayout=p.layout||'rows';save('seatLayout:'+cid,seatLayout);drawSeats();applySeatLayout()};applySeatLayout();drawSavedPlans();
