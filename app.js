@@ -81,7 +81,7 @@ function updateHomeDashboard() {
     box.innerHTML = `
       <div class="miniRow">
         <span class="timeTag">Today</span>
-        <span>${lessonClass || objective || "Today's lesson"}</span>
+        <span>${objective || lessonClass || "Today's lesson"}</span>
         <button data-go="today">→</button>
       </div>
     `;
