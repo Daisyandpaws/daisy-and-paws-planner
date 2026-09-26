@@ -232,10 +232,61 @@ if (!foundDays) {
     );
 
    if (weekRangeMatch) {
-    alert(
+    const firstWeek = weekRangeMatch[1];
+    const lastWeek = weekRangeMatch[2];
+
+    const chosenWeek = window.prompt(
       'Daisy & Paws has recognised planning for Weeks ' +
-      weekRangeMatch[1] + '–' + weekRangeMatch[2] +
-      '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
+      firstWeek + '–' + lastWeek +
+      '.\n\nWhich week would you like to preview?\n\nEnter ' +
+      firstWeek + ' or ' + lastWeek + ':'
+    );
+
+    if (chosenWeek === null) {
+      return;
+    }
+
+    const choice = chosenWeek.trim();
+
+    if (choice !== firstWeek && choice !== lastWeek) {
+      alert('Please enter ' + firstWeek + ' or ' + lastWeek + '.');
+      return;
+    }
+
+    // Match only a Week heading on its own line, so phrases such as
+    // "Spelling Week 5" are not mistaken for the main week section.
+    const escapedWeek = choice.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const weekHeading = new RegExp(
+      '^\\s*Week\\s*' + escapedWeek + '\\s*:?\\s*$',
+      'im'
+    );
+    const headingMatch = weekHeading.exec(text);
+
+    if (!headingMatch) {
+      alert(
+        'Daisy & Paws found Weeks ' + firstWeek + '–' + lastWeek +
+        ', but could not find a standalone Week ' + choice + ' heading.'
+      );
+      return;
+    }
+
+    const sectionStart = headingMatch.index + headingMatch[0].length;
+    const remainingText = text.slice(sectionStart);
+    const nextWeekHeading = /^\s*Week\s*\d+\s*:?\s*$/im.exec(remainingText);
+    const sectionEnd = nextWeekHeading ? nextWeekHeading.index : remainingText.length;
+    const weekContent = remainingText.slice(0, sectionEnd).trim();
+
+    if (!weekContent) {
+      alert('Week ' + choice + ' was found, but there is no planning beneath that heading.');
+      return;
+    }
+
+    // Preview only. Nothing is written to the planner at this stage.
+    alert(
+      'Week ' + choice + ' preview\n\n' +
+      weekContent.slice(0, 2500) +
+      (weekContent.length > 2500 ? '\n\n…preview shortened…' : '') +
+      '\n\nNothing has been added to your planner yet.'
     );
   } else if (singleWeekMatch) {
     alert(
