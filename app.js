@@ -27,6 +27,7 @@ const profile=json('profile',{});
 const onboarding=$('#onboarding');
 function applyProfile(){const pr=json('profile',{});const n=pr.name||'Teacher';const tn=$('#teacherName');if(tn)tn.textContent=n;}
 applyProfile();
+      const profileName=$('#profileName'),profileSchool=$('#profileSchool'),profileClass=$('#profileClass'),saveProfileBtn=$('#saveProfile');if(profileName)profileName.value=profile.name||'';if(profileSchool)profileSchool.value=profile.school||'';if(profileClass)profileClass.value=profile.className||'';if(saveProfileBtn)saveProfileBtn.onclick=()=>{const pr=json('profile',{});pr.name=profileName.value.trim()||'Teacher';pr.school=profileSchool.value.trim();pr.className=profileClass.value.trim();pr.setupComplete=true;save('profile',pr);applyProfile();alert('Profile saved ♡');};
 if(!profile.setupComplete){onboarding.classList.remove('hidden');}
 $('#finishSetup').onclick=()=>{const name=$('#setupName').value.trim()||'Teacher';const school=$('#setupSchool').value.trim();const mainClass=$('#setupClass').value.trim();const year=$('#setupYear').value;save('profile',{name,school,mainClass,year,setupComplete:true});if(mainClass&&classes.length===1&&classes[0].name==='My Class'){classes[0].name=mainClass;saveClasses();renderClasses();syncClassSelectors();}onboarding.classList.add('hidden');applyProfile();};
 
