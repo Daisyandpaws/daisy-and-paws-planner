@@ -62,14 +62,45 @@ if (planningFile && planningPreview) {
   try {
     const fileName = file.name.toLowerCase();
 
-    if (fileName.endsWith('.docx')) {
-        const arrayBuffer = await file.arrayBuffer();
+   if (fileName.endsWith('.docx')) {
+    const arrayBuffer = await file.arrayBuffer();
 
-        const result = await mammoth.extractRawText({
-            arrayBuffer: arrayBuffer
-        });
+    const result = await mammoth.convertToHtml({
+        arrayBuffer: arrayBuffer
+    });
 
-       planningPreview.value = result.value;
+    const temp = document.createElement('div');
+    temp.innerHTML = result.value;
+
+    // Turn Word table rows into readable rows separated by |
+    temp.querySelectorAll('tr').forEach(row => {
+        const cells = Array.from(row.querySelectorAll('th, td'));
+
+        if (cells.length) {
+            const rowText = cells
+                .map(cell => cell.innerText.trim().replace(/\s+/g, ' '))
+                .filter(Boolean)
+                .join(' | ');
+
+            row.replaceWith(
+                document.createTextNode('\n' + rowText + '\n')
+            );
+        }
+    });
+
+    planningPreview.value = temp.innerText
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    console.log(
+        'WORD TABLE IMPORT LENGTH:',
+        planningPreview.value.length
+    );
+
+    console.log(
+        'WORD TABLE IMPORT TEXT:',
+        planningPreview.value
+    );
 console.log('WORD IMPORT LENGTH:', result.value.length);
 console.log('WORD IMPORT TEXT:', result.value);
     } else {
