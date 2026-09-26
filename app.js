@@ -84,7 +84,7 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
 
     if (planType === 'weekly') {
       // Save the imported planning into the CURRENT displayed week.
-      const weekStart = iso(monday);
+      const weekStart = monday.getFullYear() + '-' + String(monday.getMonth() + 1).padStart(2, '0') + '-' + String(monday.getDate()).padStart(2, '0');
 
       // Try to split planning by weekday headings.
       const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
