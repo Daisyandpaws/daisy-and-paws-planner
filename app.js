@@ -59,11 +59,25 @@ if (planningFile && planningPreview) {
     const file = planningFile.files[0];
     if (!file) return;
 
-    try {
-      planningPreview.value = await file.text();
-    } catch (e) {
-      planningPreview.value = 'Sorry, this file could not be read.';
+  try {
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith('.docx')) {
+        const arrayBuffer = await file.arrayBuffer();
+
+        const result = await mammoth.extractRawText({
+            arrayBuffer: arrayBuffer
+        });
+
+        planningPreview.value = result.value.trim();
+    } else {
+        planningPreview.value = await file.text();
     }
+
+} catch (e) {
+    console.error('Planning import error:', e);
+    planningPreview.value = 'Sorry, Daisy & Paws could not read this planning document.';
+}
   });
 }
 
