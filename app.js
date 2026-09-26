@@ -83,63 +83,56 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
     localStorage.setItem('planningImportType', planType);
 
     if (planType === 'weekly') {
-      // Save the imported planning into the CURRENT displayed week.
-      const weekStart = monday.getFullYear() + '-' + String(monday.getMonth() + 1).padStart(2, '0') + '-' + String(monday.getDate()).padStart(2, '0');
+  const weeklyBoxes = document.querySelectorAll('#week [data-w]');
 
-      // Try to split planning by weekday headings.
-      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-      const daySections = {};
+  if (!weeklyBoxes.length) {
+    alert('Weekly planning boxes could not be found.');
+    return;
+  }
 
-      dayNames.forEach((day, index) => {
-        const nextDay = dayNames[index + 1];
+  const dayNames = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday'
+  ];
 
-        const pattern = nextDay
-          ? new RegExp(day + '\\s*:?([\\s\\S]*?)(?=' + nextDay + '\\s*:?)', 'i')
-          : new RegExp(day + '\\s*:?([\\s\\S]*)', 'i');
+  let foundDays = false;
 
-        const match = text.match(pattern);
+  dayNames.forEach((day, index) => {
+    const nextDay = dayNames[index + 1];
 
-        if (match && match[1].trim()) {
-          daySections[index] = match[1].trim();
-        }
-      });
+    const pattern = nextDay
+      ? new RegExp(
+          day + '\\s*:?([\\s\\S]*?)(?=' + nextDay + '\\s*:?)',
+          'i'
+        )
+      : new RegExp(
+          day + '\\s*:?([\\s\\S]*)',
+          'i'
+        );
 
-      // If weekday headings were found, put each section in its day.
-      if (Object.keys(daySections).length > 0) {
-        Object.keys(daySections).forEach((index) => {
-          localStorage.setItem(
-            'week:' + weekStart + ':' + index,
-            daySections[index]
-          );
-        });
-      } else {
-        // If the document has no Monday-Friday headings,
-        // put the whole import into Monday rather than losing it.
-        localStorage.setItem('week:' + weekStart + ':0', text);
-      }
+    const match = text.match(pattern);
 
-      renderWeek();
+    if (match && match[1].trim() && weeklyBoxes[index]) {
+      const content = match[1].trim();
+      const storageKey = weeklyBoxes[index].dataset.w;
 
-      alert('Your planning has been added to the weekly planner.');
-      return;
-    }
+      localStorage.setItem(storageKey, content);
+      weeklyBoxes[index].value = content;
 
-    if (planType === 'yearly') {
-      localStorage.setItem('yearlyPlanning', text);
-      alert('Your yearly planning has been imported successfully.');
-      return;
-    }
-
-    if (planType === 'termly') {
-      localStorage.setItem('termPlanning', text);
-      alert('Your termly planning has been imported successfully.');
-      return;
-    }
-
-    if (planType === 'daily') {
-      localStorage.setItem('dailyPlanning', text);
-      alert('Your daily planning has been imported successfully.');
-      return;
+      foundDays = true;
     }
   });
-});
+
+  if (!foundDays && weeklyBoxes[0]) {
+    const storageKey = weeklyBoxes[0].dataset.w;
+
+    localStorage.setItem(storageKey, text);
+    weeklyBoxes[0].value = text;
+  }
+
+  alert('Your weekly planning has been imported successfully.');
+  return;
+}
