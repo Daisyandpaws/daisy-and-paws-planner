@@ -198,3 +198,91 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
 }
   });
 });
+// Daisy & Paws planning analyser
+const analysePlanningBtn = document.querySelector('#analysePlanningBtn');
+
+if (analysePlanningBtn) {
+  analysePlanningBtn.addEventListener('click', () => {
+    const preview = document.querySelector('#planningPreview');
+    const analysis = document.querySelector('#planningAnalysis');
+
+    if (!preview || !preview.value.trim()) {
+      alert('Choose a planning file first.');
+      return;
+    }
+
+    const text = preview.value.trim();
+
+    // Detect year group
+    let year = 'Not detected';
+    const yearMatch = text.match(/\bYear\s*([1-6])\b/i);
+    if (yearMatch) {
+      year = 'Year ' + yearMatch[1];
+    }
+
+    // Detect subject
+    let subject = 'Not detected';
+
+    const subjects = [
+      'English',
+      'Maths',
+      'Mathematics',
+      'Science',
+      'History',
+      'Geography',
+      'Computing',
+      'Art',
+      'Music',
+      'RE',
+      'PSHE',
+      'PE',
+      'Design Technology',
+      'DT'
+    ];
+
+    for (const item of subjects) {
+      const subjectPattern = new RegExp('\\b' + item + '\\b', 'i');
+      if (subjectPattern.test(text)) {
+        subject = item === 'Mathematics' ? 'Maths' : item;
+        break;
+      }
+    }
+
+    // Detect week beginning
+    let week = 'Not detected';
+
+    const weekMatch = text.match(
+      /(?:week\s*beginning|week\s*commencing|w\/?b)\s*:?\s*([^\n\r]+)/i
+    );
+
+    if (weekMatch) {
+      week = weekMatch[1].trim();
+    }
+
+    // Work out likely planning type
+    let type = 'General planning';
+
+    const weekdayCount = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday'
+    ].filter(day => new RegExp('\\b' + day + '\\b', 'i').test(text)).length;
+
+    if (weekdayCount >= 2 || week !== 'Not detected') {
+      type = 'Weekly planning';
+    } else if (/\bterm\s*[1-6]\b/i.test(text)) {
+      type = 'Termly planning';
+    } else if (/\bcurriculum\s+(overview|map)\b/i.test(text)) {
+      type = 'Yearly planning';
+    }
+
+    document.querySelector('#detectedYear').textContent = year;
+    document.querySelector('#detectedSubject').textContent = subject;
+    document.querySelector('#detectedType').textContent = type;
+    document.querySelector('#detectedWeek').textContent = week;
+
+    analysis.hidden = false;
+  });
+}
