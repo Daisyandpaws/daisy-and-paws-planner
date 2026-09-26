@@ -94,9 +94,8 @@ function updateHomeDashboard() {
       </div>
     `;
   }
-
-  
+}
 
 setTimeout(updateHomeDashboard, 100);
 
-
+})();
