@@ -234,79 +234,73 @@ if (!foundDays) {
    if (weekRangeMatch) {
     const firstWeek = weekRangeMatch[1];
     const secondWeek = weekRangeMatch[2];
-
     const chosenWeek = prompt(
-      'Daisy & Paws has recognised planning for Weeks ' +
-      firstWeek + '–' + secondWeek +
-      '.\n\nWhich week would you like to preview?\n\nEnter ' +
-      firstWeek + ' or ' + secondWeek + ':'
+      'Daisy & Paws has recognised planning for Weeks ' + firstWeek + '–' + secondWeek +
+      '.\n\nWhich week would you like to preview?\n\nEnter ' + firstWeek + ' or ' + secondWeek + ':'
     );
 
-    if (chosenWeek === null) return;
-
-    const choice = chosenWeek.trim();
-    if (choice !== firstWeek && choice !== secondWeek) {
-      alert('Please enter ' + firstWeek + ' or ' + secondWeek + '.');
+    if (chosenWeek !== firstWeek && chosenWeek !== secondWeek) {
+      alert('No week was selected. Nothing has been added to your planner.');
       return;
     }
 
-    // Find a real Week N heading. Word/table imports may leave pipes around
-    // headings, so accept lines such as "Week 5" or "| Week 5 |", but reject
-    // phrases such as "Spelling Week 5".
-    const headingRegex = /\bWeek\s*(\d+)\b/gi;
-    const headings = [];
-    let headingMatch;
+    // Word tables often split day labels across lines (for example Mo + n or Thu + rs).
+    // Normalise only those labels, leaving the lesson text itself intact.
+    const normalised = text
+      .replace(/\bMo\s*n\b/gi, 'Monday')
+      .replace(/\bTue\s*s?\b/gi, 'Tuesday')
+      .replace(/\bWe\s*d\b/gi, 'Wednesday')
+      .replace(/\bThu\s*rs\b/gi, 'Thursday')
+      .replace(/\bFri\b/gi, 'Friday');
 
-    while ((headingMatch = headingRegex.exec(text)) !== null) {
-      const lineStart = text.lastIndexOf('\n', headingMatch.index - 1) + 1;
-      const beforeOnLine = text.slice(lineStart, headingMatch.index);
-      const afterIndex = headingMatch.index + headingMatch[0].length;
-      const lineEndPos = text.indexOf('\n', afterIndex);
-      const lineEnd = lineEndPos === -1 ? text.length : lineEndPos;
-      const afterOnLine = text.slice(afterIndex, lineEnd);
+    // The document contains two detailed Monday-Friday timetable blocks.
+    // Weeks 5-6 in the header map to the first and second timetable blocks respectively.
+    const mondayStarts = [];
+    const mondayRe = /\bMonday\b/gi;
+    let mondayHit;
+    while ((mondayHit = mondayRe.exec(normalised)) !== null) mondayStarts.push(mondayHit.index);
 
-      // A standalone heading can have whitespace, punctuation or table pipes,
-      // but no ordinary words before or after it on the same line.
-      const cleanEdge = value => value.replace(/[\s|:;,.\-–—]/g, '');
-      if (cleanEdge(beforeOnLine) === '' && cleanEdge(afterOnLine) === '') {
-        headings.push({
-          week: headingMatch[1],
-          start: lineEndPos === -1 ? afterIndex : lineEndPos + 1
-        });
-      }
-    }
+    const blockIndex = chosenWeek === firstWeek ? 0 : 1;
+    const blockStart = mondayStarts[blockIndex];
+    const blockEnd = mondayStarts[blockIndex + 1] ?? normalised.length;
 
-    const selectedHeadingIndex = headings.findIndex(h => h.week === choice);
-
-    if (selectedHeadingIndex === -1) {
-      alert(
-        'Daisy & Paws found Weeks ' + firstWeek + '–' + secondWeek +
-        ', but could not identify the main Week ' + choice +
-        ' section yet.\n\nNothing has been added to your planner.'
-      );
+    if (blockStart == null) {
+      alert('Daisy & Paws could not find the detailed timetable for Week ' + chosenWeek + '.\n\nNothing has been added to your planner.');
       return;
     }
 
-    const sectionStart = headings[selectedHeadingIndex].start;
-    const nextHeading = headings.slice(selectedHeadingIndex + 1)
-      .find(h => h.week !== choice);
-    const sectionEnd = nextHeading ? nextHeading.start : text.length;
-    const weekContent = text.slice(sectionStart, sectionEnd).trim();
+    const block = normalised.slice(blockStart, blockEnd);
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const extracted = {};
 
-    if (!weekContent) {
-      alert(
-        'Daisy & Paws found the Week ' + choice +
-        ' heading, but there was no planning underneath it.\n\nNothing has been added to your planner.'
-      );
+    days.forEach((day, index) => {
+      const nextDay = days[index + 1];
+      const pattern = nextDay
+        ? new RegExp('\\b' + day + '\\b([\\s\\S]*?)(?=\\b' + nextDay + '\\b)', 'i')
+        : new RegExp('\\b' + day + '\\b([\\s\\S]*)$', 'i');
+      const match = block.match(pattern);
+      extracted[day] = match ? match[1].trim() : '';
+    });
+
+    const foundCount = days.filter(day => extracted[day]).length;
+    if (foundCount < 3) {
+      alert('Daisy & Paws found Week ' + chosenWeek + ', but could not safely separate enough of the Monday-Friday timetable yet.\n\nNothing has been added to your planner.');
       return;
     }
+
+    const previewText = days.map(day =>
+      '──────── ' + day + ' ────────\n' + (extracted[day] || '[No content detected]')
+    ).join('\n\n');
+
+    const previewBox = document.querySelector('#planningPreview');
+    if (previewBox) previewBox.value = previewText;
 
     alert(
-      'Week ' + choice + ' preview\n\n' +
-      weekContent.slice(0, 3500) +
-      (weekContent.length > 3500 ? '\n\n[Preview shortened]' : '') +
-      '\n\nNothing has been added to your planner yet.'
+      'Week ' + chosenWeek + ' has been separated into ' + foundCount + ' day sections.\n\n' +
+      'The five-day preview is now shown in the planning preview box.\n\n' +
+      'Nothing has been added to your planner yet.'
     );
+    return;
   } else if (singleWeekMatch) {
     alert(
       'Daisy & Paws has recognised planning for Week ' +
