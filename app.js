@@ -51,11 +51,25 @@ const dd=document.querySelector('#dashDate'); if(dd){dd.textContent=new Intl.Dat
 document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dashTask:'+i;cb.checked=localStorage.getItem(k)==='1';cb.addEventListener('change',()=>localStorage.setItem(k,cb.checked?'1':'0'));});
 })();
 // Commercial Beta 2 — visible feature additions
-const planningFile=$('#planningFile'); if(planningFile) planningFile.onchange=async()=>{const f=planningFile.files[0];if(!f)return;try{$('#planningPreview').value=await f.text()}catch(e){$('#planningPreview').value='This file needs the secure document importer planned for the production release.'}};
+const planningFile = document.querySelector('#planningFile');
+const planningPreview = document.querySelector('#planningPreview');
+
+if (planningFile && planningPreview) {
+  planningFile.addEventListener('change', async () => {
+    const file = planningFile.files[0];
+    if (!file) return;
+
+    try {
+      planningPreview.value = await file.text();
+    } catch (e) {
+      planningPreview.value = 'Sorry, this file could not be read.';
+    }
+  });
+}
+
 document.querySelectorAll('.planningImportBtn').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const preview = document.querySelector('#planningPreview');
-    const text = preview ? preview.value.trim() : '';
+    const text = planningPreview ? planningPreview.value.trim() : '';
 
     if (!text) {
       alert('Choose a planning file first.');
@@ -73,9 +87,9 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
 
     if (!destinations[planType]) return;
 
-    save('planningImportRaw', text);
-    save('planningImportType', planType);
-    save(destinations[planType], text);
+    localStorage.setItem('planningImportRaw', text);
+    localStorage.setItem('planningImportType', planType);
+    localStorage.setItem(destinations[planType], text);
 
     alert('Your ' + planType + ' planning has been imported successfully.');
   });
