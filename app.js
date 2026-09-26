@@ -69,7 +69,9 @@ if (planningFile && planningPreview) {
             arrayBuffer: arrayBuffer
         });
 
-        planningPreview.value = result.value.trim();
+       planningPreview.value = result.value;
+console.log('WORD IMPORT LENGTH:', result.value.length);
+console.log('WORD IMPORT TEXT:', result.value);
     } else {
         planningPreview.value = await file.text();
     }
