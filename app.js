@@ -99,4 +99,4 @@ function updateHomeDashboard() {
 
 setTimeout(updateHomeDashboard, 100);
 
-})();
+
