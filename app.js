@@ -233,22 +233,72 @@ if (!foundDays) {
         /\bWeek\s*:?\s*(\d+)\b/i
     );
 
-    if (weekRangeMatch) {
+   if (weekRangeMatch) {
+    const firstWeek = weekRangeMatch[1];
+    const secondWeek = weekRangeMatch[2];
+
+    const chosenWeek = prompt(
+        'Daisy & Paws has recognised planning for Weeks ' +
+        firstWeek + '–' + secondWeek +
+        '.\n\nWhich week would you like to import?\n\nEnter ' +
+        firstWeek + ' or ' + secondWeek + ':'
+    );
+
+    if (
+        chosenWeek !== firstWeek &&
+        chosenWeek !== secondWeek
+    ) {
+        alert('No week was imported.');
+        return;
+    }
+
+    // Find the chosen week's section.
+    // This accepts headings such as:
+    // Week 5
+    // Week 5:
+    // Week 5 - Writing
+    const chosenWeekPattern = new RegExp(
+        '\\bWeek\\s*' + chosenWeek + '\\s*:?\\s*([\\s\\S]*?)(?=\\bWeek\\s*\\d+\\s*:?|$)',
+        'i'
+    );
+
+    const chosenWeekMatch = text.match(chosenWeekPattern);
+
+    if (chosenWeekMatch && chosenWeekMatch[1].trim()) {
+        const content = chosenWeekMatch[1].trim();
+
+        if (weeklyBoxes[0]) {
+            const storageKey = weeklyBoxes[0].dataset.w;
+
+            localStorage.setItem(storageKey, content);
+            weeklyBoxes[0].value = content;
+        }
+
         alert(
-            'Daisy & Paws has recognised planning for Weeks ' +
-            weekRangeMatch[1] + '–' + weekRangeMatch[2] +
-            '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
-        );
-    } else if (singleWeekMatch) {
-        alert(
-            'Daisy & Paws has recognised planning for Week ' +
-            singleWeekMatch[1] +
-            '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
+            'Week ' + chosenWeek +
+            ' has been imported into your weekly planner.'
         );
     } else {
         alert(
-            'Daisy & Paws has recognised the planning, but it does not contain Monday–Friday headings.\n\nNothing has been placed into individual days.'
+            'Daisy & Paws recognised Week ' + chosenWeek +
+            ', but could not find planning beneath that heading.'
         );
+    }
+
+} else if (singleWeekMatch) {
+
+    alert(
+        'Daisy & Paws has recognised planning for Week ' +
+        singleWeekMatch[1] +
+        '.'
+    );
+
+} else {
+
+    alert(
+        'Daisy & Paws has recognised the planning, but could not identify a week.'
+    );
+}
     }
 }
 
