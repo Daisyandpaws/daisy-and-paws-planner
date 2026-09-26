@@ -52,8 +52,31 @@ document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dash
 })();
 // Commercial Beta 2 — visible feature additions
 const planningFile=$('#planningFile'); if(planningFile) planningFile.onchange=async()=>{const f=planningFile.files[0];if(!f)return;try{$('#planningPreview').value=await f.text()}catch(e){$('#planningPreview').value='This file needs the secure document importer planned for the production release.'}};
-if($('#usePlanningImport')) $('#usePlanningImport').onclick=()=>{const v=$('#planningPreview').value.trim();if(!v)return alert('Choose a planning file first.');const el=document.querySelector('[data-field="term-notes"]');el.value=(el.value?el.value+'\n\n':'')+'IMPORTED SCHOOL PLANNING\n'+v;save('field:term-notes',el.value);alert('Imported into Termly Planning. Please review and edit before using it.')};
-let seatLayout=get('seatLayout:'+classId,'rows');function applySeatLayout(){if(!$('#seatGrid'))return;$('#seatGrid').className='seats '+seatLayout;$$('[data-layout]').forEach(b=>b.classList.toggle('active',b.dataset.layout===seatLayout))}$$('[data-layout]').forEach(b=>b.onclick=()=>{seatLayout=b.dataset.layout;save('seatLayout:'+($('#seatClass').value||classId),seatLayout);applySeatLayout()});const oldSeatChange=$('#seatClass').onchange;$('#seatClass').onchange=()=>{if(oldSeatChange)oldSeatChange();seatLayout=get('seatLayout:'+$('#seatClass').value,'rows');applySeatLayout();drawSavedPlans()};
-function drawSavedPlans(){if(!$('#savedSeatPlans'))return;const cid=+$('#seatClass').value||classId;const plans=json('seatPlans:'+cid,[]);$('#savedSeatPlans').innerHTML='<option value="">Saved arrangements…</option>'+plans.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join('')}
-if($('#saveSeatPlan'))$('#saveSeatPlan').onclick=()=>{const cid=+$('#seatClass').value||classId;const name=$('#seatPlanName').value.trim()||'Seating plan';let plans=json('seatPlans:'+cid,[]);plans.push({name,layout:seatLayout,seats:json('seats:'+cid,[])});save('seatPlans:'+cid,plans);$('#seatPlanName').value='';drawSavedPlans()};if($('#savedSeatPlans'))$('#savedSeatPlans').onchange=()=>{const cid=+$('#seatClass').value||classId;const p=json('seatPlans:'+cid,[])[+$('#savedSeatPlans').value];if(!p)return;save('seats:'+cid,p.seats||[]);seatLayout=p.layout||'rows';save('seatLayout:'+cid,seatLayout);drawSeats();applySeatLayout()};applySeatLayout();drawSavedPlans();
-if($('#applySchoolDay')){$('#dayStart').value=get('schoolDayStart','08:45');$('#dayEnd').value=get('schoolDayEnd','15:30');$('#slotLength').value=get('schoolSlot','60');$('#applySchoolDay').onclick=()=>{save('schoolDayStart',$('#dayStart').value);save('schoolDayEnd',$('#dayEnd').value);save('schoolSlot',$('#slotLength').value);alert('School-day settings saved. The next timetable engine will generate individual named periods and weekday variations from these settings.')};}
+document.querySelectorAll('.planningImportBtn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const preview = document.querySelector('#planningPreview');
+    const text = preview ? preview.value.trim() : '';
+
+    if (!text) {
+      alert('Choose a planning file first.');
+      return;
+    }
+
+    const planType = btn.dataset.planType;
+
+    const destinations = {
+      yearly: 'yearlyPlanning',
+      termly: 'termPlanning',
+      weekly: 'weeklyPlanning',
+      daily: 'dailyPlanning'
+    };
+
+    if (!destinations[planType]) return;
+
+    save('planningImportRaw', text);
+    save('planningImportType', planType);
+    save(destinations[planType], text);
+
+    alert('Your ' + planType + ' planning has been imported successfully.');
+  });
+});
