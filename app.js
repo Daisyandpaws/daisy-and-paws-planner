@@ -118,7 +118,7 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
         monday.getDate() - ((monday.getDay() + 6) % 7)
       );
 
-      renderWeek();
+      document.querySelector('[data-go="week"]')?.click();
     }
   }
 
