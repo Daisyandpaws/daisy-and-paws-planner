@@ -78,19 +78,68 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
 
     const planType = btn.dataset.planType;
 
-    const destinations = {
-      yearly: 'yearlyPlanning',
-      termly: 'termPlanning',
-      weekly: 'weeklyPlanning',
-      daily: 'dailyPlanning'
-    };
-
-    if (!destinations[planType]) return;
-
+    // Keep a copy of the original imported planning
     localStorage.setItem('planningImportRaw', text);
     localStorage.setItem('planningImportType', planType);
-    localStorage.setItem(destinations[planType], text);
 
-    alert('Your ' + planType + ' planning has been imported successfully.');
+    if (planType === 'weekly') {
+      // Save the imported planning into the CURRENT displayed week.
+      const weekStart = iso(monday);
+
+      // Try to split planning by weekday headings.
+      const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+      const daySections = {};
+
+      dayNames.forEach((day, index) => {
+        const nextDay = dayNames[index + 1];
+
+        const pattern = nextDay
+          ? new RegExp(day + '\\s*:?([\\s\\S]*?)(?=' + nextDay + '\\s*:?)', 'i')
+          : new RegExp(day + '\\s*:?([\\s\\S]*)', 'i');
+
+        const match = text.match(pattern);
+
+        if (match && match[1].trim()) {
+          daySections[index] = match[1].trim();
+        }
+      });
+
+      // If weekday headings were found, put each section in its day.
+      if (Object.keys(daySections).length > 0) {
+        Object.keys(daySections).forEach((index) => {
+          localStorage.setItem(
+            'week:' + weekStart + ':' + index,
+            daySections[index]
+          );
+        });
+      } else {
+        // If the document has no Monday-Friday headings,
+        // put the whole import into Monday rather than losing it.
+        localStorage.setItem('week:' + weekStart + ':0', text);
+      }
+
+      renderWeek();
+
+      alert('Your planning has been added to the weekly planner.');
+      return;
+    }
+
+    if (planType === 'yearly') {
+      localStorage.setItem('yearlyPlanning', text);
+      alert('Your yearly planning has been imported successfully.');
+      return;
+    }
+
+    if (planType === 'termly') {
+      localStorage.setItem('termPlanning', text);
+      alert('Your termly planning has been imported successfully.');
+      return;
+    }
+
+    if (planType === 'daily') {
+      localStorage.setItem('dailyPlanning', text);
+      alert('Your daily planning has been imported successfully.');
+      return;
+    }
   });
 });
