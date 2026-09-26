@@ -45,7 +45,7 @@ searchInput.oninput=()=>{const q=searchInput.value.trim().toLowerCase();if(q.len
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openSearch()}if(e.key==='Escape')searchOverlay.classList.add('hidden')});
 
 if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))navigator.serviceWorker.register('./sw.js').catch(()=>{});
-const $ = (selector) => document.querySelector(selector);
+
 // Pre-release 5 dashboard enhancements
 const dd=document.querySelector('#dashDate'); if(dd){dd.textContent=new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date());}
 document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dashTask:'+i;cb.checked=localStorage.getItem(k)==='1';cb.addEventListener('change',()=>localStorage.setItem(k,cb.checked?'1':'0'));});
