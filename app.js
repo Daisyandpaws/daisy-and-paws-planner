@@ -95,16 +95,6 @@ function updateHomeDashboard() {
     `;
   }
 
-  box.querySelectorAll('[data-go]').forEach(button => {
-    button.onclick = () => {
-      document.querySelectorAll('.page').forEach(page =>
-        page.classList.toggle('active', page.id === button.dataset.go)
-      );
-      document.querySelectorAll('[data-go]').forEach(nav =>
-        nav.classList.toggle('active', nav.dataset.go === button.dataset.go)
-      );
-    };
-  });
-}
+  
 
 setTimeout(updateHomeDashboard, 100);
