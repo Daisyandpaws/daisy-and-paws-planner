@@ -49,7 +49,7 @@ if('serviceWorker'in navigator&&/^https?:$/.test(location.protocol))navigator.se
 // Pre-release 5 dashboard enhancements
 const dd=document.querySelector('#dashDate'); if(dd){dd.textContent=new Intl.DateTimeFormat('en-GB',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(new Date());}
 document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dashTask:'+i;cb.checked=localStorage.getItem(k)==='1';cb.addEventListener('change',()=>localStorage.setItem(k,cb.checked?'1':'0'));});
-})();
+
 // Commercial Beta 2 — visible feature additions
 const planningFile = document.querySelector('#planningFile');
 const planningPreview = document.querySelector('#planningPreview');
@@ -101,8 +101,6 @@ if (planningFile && planningPreview) {
         'WORD TABLE IMPORT TEXT:',
         planningPreview.value
     );
-console.log('WORD IMPORT LENGTH:', result.value.length);
-console.log('WORD IMPORT TEXT:', result.value);
     } else {
         planningPreview.value = await file.text();
     }
@@ -126,8 +124,8 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
     const planType = btn.dataset.planType;
 
     // Keep a copy of the original imported planning
-    localStorage.setItem('planningImportRaw', text);
-    localStorage.setItem('planningImportType', planType);
+    save('planningImportRaw', text);
+    save('planningImportType', planType);
 
     if (planType === 'weekly') {
   // Look for "Week beginning: 28 September 2026"
@@ -214,7 +212,7 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
       const content = match[1].trim();
       const storageKey = weeklyBoxes[index].dataset.w;
 
-      localStorage.setItem(storageKey, content);
+      save(storageKey, content);
       weeklyBoxes[index].value = content;
 
       foundDays = true;
@@ -234,75 +232,27 @@ if (!foundDays) {
     );
 
    if (weekRangeMatch) {
-    const firstWeek = weekRangeMatch[1];
-    const secondWeek = weekRangeMatch[2];
-
-    const chosenWeek = prompt(
-        'Daisy & Paws has recognised planning for Weeks ' +
-        firstWeek + '–' + secondWeek +
-        '.\n\nWhich week would you like to import?\n\nEnter ' +
-        firstWeek + ' or ' + secondWeek + ':'
-    );
-
-    if (
-        chosenWeek !== firstWeek &&
-        chosenWeek !== secondWeek
-    ) {
-        alert('No week was imported.');
-        return;
-    }
-
-    // Find the chosen week's section.
-    // This accepts headings such as:
-    // Week 5
-    // Week 5:
-    // Week 5 - Writing
-    const chosenWeekPattern = new RegExp(
-        '\\bWeek\\s*' + chosenWeek + '\\s*:?\\s*([\\s\\S]*?)(?=\\bWeek\\s*\\d+\\s*:?|$)',
-        'i'
-    );
-
-    const chosenWeekMatch = text.match(chosenWeekPattern);
-
-    if (chosenWeekMatch && chosenWeekMatch[1].trim()) {
-        const content = chosenWeekMatch[1].trim();
-
-        if (weeklyBoxes[0]) {
-            const storageKey = weeklyBoxes[0].dataset.w;
-
-            localStorage.setItem(storageKey, content);
-            weeklyBoxes[0].value = content;
-        }
-
-        alert(
-            'Week ' + chosenWeek +
-            ' has been imported into your weekly planner.'
-        );
-    } else {
-        alert(
-            'Daisy & Paws recognised Week ' + chosenWeek +
-            ', but could not find planning beneath that heading.'
-        );
-    }
-
-} else if (singleWeekMatch) {
-
     alert(
-        'Daisy & Paws has recognised planning for Week ' +
-        singleWeekMatch[1] +
-        '.'
+      'Daisy & Paws has recognised planning for Weeks ' +
+      weekRangeMatch[1] + '–' + weekRangeMatch[2] +
+      '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
     );
-
-} else {
-
+  } else if (singleWeekMatch) {
     alert(
-        'Daisy & Paws has recognised the planning, but could not identify a week.'
+      'Daisy & Paws has recognised planning for Week ' +
+      singleWeekMatch[1] +
+      '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
     );
-}
+  } else {
+    alert(
+      'Daisy & Paws has recognised the planning, but it does not contain Monday–Friday headings.\n\nNothing has been placed into individual days.'
+    );
+  }
     }
-}
 
-  alert('Your weekly planning has been imported successfully.');
+  if (foundDays) {
+    alert('Your weekly planning has been imported successfully.');
+  }
   return;
 }
   });
@@ -450,3 +400,4 @@ document.querySelector('#detectedWeek').textContent = week;
 analysis.hidden = false;
   });
 }
+})();
