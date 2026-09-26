@@ -51,8 +51,50 @@ const dd=document.querySelector('#dashDate'); if(dd){dd.textContent=new Intl.Dat
 document.querySelectorAll('.miniTasks input').forEach((cb,i)=>{const k='dp3:dashTask:'+i;cb.checked=localStorage.getItem(k)==='1';cb.addEventListener('change',()=>localStorage.setItem(k,cb.checked?'1':'0'));});
 })();
 // Commercial Beta 2 — visible feature additions
-const planningFile=$('#planningFile'); if(planningFile) planningFile.onchange=async()=>{const f=planningFile.files[0];if(!f)return;try{$('#planningPreview').value=await f.text()}catch(e){$('#planningPreview').value='This file needs the secure document importer planned for the production release.'}};
-if($('#usePlanningImport')) $('#usePlanningImport').onclick=()=>{const v=$('#planningPreview').value.trim();if(!v)return alert('Choose a planning file first.');const el=document.querySelector('[data-field="term-notes"]');el.value=(el.value?el.value+'\n\n':'')+'IMPORTED SCHOOL PLANNING\n'+v;save('field:term-notes',el.value);alert('Imported into Termly Planning. Please review and edit before using it.')};
+// Planning import v1
+const planningFile=$('#planningFile');
+
+if(planningFile){
+  planningFile.onchange=async()=>{
+    const f=planningFile.files[0];
+    if(!f)return;
+
+    const preview=$('#planningPreview');
+    if(preview) preview.value='Reading '+f.name+'...';
+
+    try{
+      const text=await f.text();
+
+      if(preview){
+        preview.value=text;
+      }
+
+      save('planningImportFileName',f.name);
+      save('planningImportRaw',text);
+
+    }catch(e){
+      if(preview){
+        preview.value='Sorry — this file could not be read.';
+      }
+    }
+  };
+}
+
+if($('#usePlanningImport')){
+  $('#usePlanningImport').onclick=()=>{
+    const preview=$('#planningPreview');
+    const text=preview ? preview.value.trim() : '';
+
+    if(!text){
+      alert('Choose a planning file first.');
+      return;
+    }
+
+    save('planningImportRaw',text);
+
+    alert('Planning uploaded successfully. Next we will organise it into Yearly, Termly, Weekly and Daily planning.');
+  };
+}
 let seatLayout=get('seatLayout:'+classId,'rows');function applySeatLayout(){if(!$('#seatGrid'))return;$('#seatGrid').className='seats '+seatLayout;$$('[data-layout]').forEach(b=>b.classList.toggle('active',b.dataset.layout===seatLayout))}$$('[data-layout]').forEach(b=>b.onclick=()=>{seatLayout=b.dataset.layout;save('seatLayout:'+($('#seatClass').value||classId),seatLayout);applySeatLayout()});const oldSeatChange=$('#seatClass').onchange;$('#seatClass').onchange=()=>{if(oldSeatChange)oldSeatChange();seatLayout=get('seatLayout:'+$('#seatClass').value,'rows');applySeatLayout();drawSavedPlans()};
 function drawSavedPlans(){if(!$('#savedSeatPlans'))return;const cid=+$('#seatClass').value||classId;const plans=json('seatPlans:'+cid,[]);$('#savedSeatPlans').innerHTML='<option value="">Saved arrangements…</option>'+plans.map((p,i)=>`<option value="${i}">${esc(p.name)}</option>`).join('')}
 if($('#saveSeatPlan'))$('#saveSeatPlan').onclick=()=>{const cid=+$('#seatClass').value||classId;const name=$('#seatPlanName').value.trim()||'Seating plan';let plans=json('seatPlans:'+cid,[]);plans.push({name,layout:seatLayout,seats:json('seats:'+cid,[])});save('seatPlans:'+cid,plans);$('#seatPlanName').value='';drawSavedPlans()};if($('#savedSeatPlans'))$('#savedSeatPlans').onchange=()=>{const cid=+$('#seatClass').value||classId;const p=json('seatPlans:'+cid,[])[+$('#savedSeatPlans').value];if(!p)return;save('seats:'+cid,p.seats||[]);seatLayout=p.layout||'rows';save('seatLayout:'+cid,seatLayout);drawSeats();applySeatLayout()};applySeatLayout();drawSavedPlans();
