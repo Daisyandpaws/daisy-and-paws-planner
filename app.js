@@ -229,76 +229,131 @@ if (analysePlanningBtn) {
 
     const text = preview.value.trim();
 
-    // Detect year group
-    let year = 'Not detected';
-    const yearMatch = text.match(/\bYear\s*([1-6])\b/i);
-    if (yearMatch) {
-      year = 'Year ' + yearMatch[1];
-    }
+// Clean Word's extracted text before analysing it
+const cleanText = text
+  .replace(/\r/g, '\n')
+  .replace(/\u00A0/g, ' ')
+  .replace(/[ \t]+/g, ' ')
+  .replace(/\n{3,}/g, '\n\n');
 
-    // Detect subject
-    let subject = 'Not detected';
 
-    const subjects = [
-      'English',
-      'Maths',
-      'Mathematics',
-      'Science',
-      'History',
-      'Geography',
-      'Computing',
-      'Art',
-      'Music',
-      'RE',
-      'PSHE',
-      'PE',
-      'Design Technology',
-      'DT'
-    ];
+// -------------------------
+// DETECT YEAR GROUP
+// -------------------------
 
-    for (const item of subjects) {
-      const subjectPattern = new RegExp('\\b' + item + '\\b', 'i');
-      if (subjectPattern.test(text)) {
-        subject = item === 'Mathematics' ? 'Maths' : item;
-        break;
-      }
-    }
+let year = 'Not detected';
 
-    // Detect week beginning
-    let week = 'Not detected';
+const yearMatch = cleanText.match(
+  /\byear\s*(?:group\s*)?[:\-]?\s*([1-6])\b/i
+);
 
-    const weekMatch = text.match(
-      /(?:week\s*beginning|week\s*commencing|w\/?b)\s*:?\s*([^\n\r]+)/i
-    );
+if (yearMatch) {
+  year = 'Year ' + yearMatch[1];
+}
 
-    if (weekMatch) {
-      week = weekMatch[1].trim();
-    }
 
-    // Work out likely planning type
-    let type = 'General planning';
+// -------------------------
+// DETECT SUBJECT
+// -------------------------
 
-    const weekdayCount = [
-      'Monday',
-      'Tuesday',
-      'Wednesday',
-      'Thursday',
-      'Friday'
-    ].filter(day => new RegExp('\\b' + day + '\\b', 'i').test(text)).length;
+let subject = 'Not detected';
 
-    if (weekdayCount >= 2 || week !== 'Not detected') {
-      type = 'Weekly planning';
-    } else if (/\bterm\s*[1-6]\b/i.test(text)) {
-      type = 'Termly planning';
-    } else if (/\bcurriculum\s+(overview|map)\b/i.test(text)) {
-      type = 'Yearly planning';
-    }
+const subjects = [
+  ['English', /\bEnglish\b/i],
+  ['Maths', /\b(?:Maths|Mathematics)\b/i],
+  ['Science', /\bScience\b/i],
+  ['History', /\bHistory\b/i],
+  ['Geography', /\bGeography\b/i],
+  ['Computing', /\bComputing\b/i],
+  ['Art', /\bArt\b/i],
+  ['Music', /\bMusic\b/i],
+  ['PE', /\b(?:PE|Physical Education)\b/i],
+  ['Design Technology', /\b(?:Design Technology|DT)\b/i]
+];
 
-    document.querySelector('#detectedYear').textContent = year;
-    document.querySelector('#detectedSubject').textContent = subject;
-    document.querySelector('#detectedType').textContent = type;
-    document.querySelector('#detectedWeek').textContent = week;
+for (const [name, pattern] of subjects) {
+  if (pattern.test(cleanText)) {
+    subject = name;
+    break;
+  }
+}
 
-    analysis.hidden = false;
+// Extra check for documents whose subject is obvious
+// from common planning terminology
+if (
+  subject === 'Not detected' &&
+  /\b(?:writing|reading|grammar|phonics|genre|class book)\b/i.test(cleanText)
+) {
+  subject = 'English';
+}
+
+
+// -------------------------
+// DETECT WEEK / DATE
+// -------------------------
+
+let week = 'Not detected';
+
+const datePatterns = [
+  /\bweek\s*(?:beginning|commencing)\s*[:\-]?\s*(?:monday\s*)?(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?)/i,
+
+  /\bw\/?b\s*[:\-]?\s*(?:monday\s*)?(\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)(?:\s+\d{4})?)/i,
+
+  /\bweek\s*(?:beginning|commencing)\s*[:\-]?\s*(\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)/i
+];
+
+for (const pattern of datePatterns) {
+  const match = cleanText.match(pattern);
+
+  if (match) {
+    week = match[1].trim();
+    break;
+  }
+}
+
+
+// -------------------------
+// DETECT PLANNING TYPE
+// -------------------------
+
+let type = 'Not detected';
+
+const weekdayCount = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday'
+].filter(day =>
+  new RegExp('\\b' + day + '\\b', 'i').test(cleanText)
+).length;
+
+if (
+  weekdayCount >= 2 ||
+  week !== 'Not detected' ||
+  /\bweeks?\s*[:\-]?\s*\d+(?:\s*[-–&]\s*\d+)?\b/i.test(cleanText)
+) {
+  type = 'Weekly planning';
+} else if (
+  /\bterm\s*[:\-]?\s*(?:1|2|3|4|5|6|autumn|spring|summer)\b/i.test(cleanText)
+) {
+  type = 'Termly planning';
+} else if (
+  /\b(?:curriculum\s+(?:overview|map)|yearly\s+overview|long[\s-]*term\s+plan)\b/i.test(cleanText)
+) {
+  type = 'Yearly planning';
+}
+
+
+// -------------------------
+// DISPLAY RESULTS
+// -------------------------
+
+document.querySelector('#detectedYear').textContent = year;
+document.querySelector('#detectedSubject').textContent = subject;
+document.querySelector('#detectedType').textContent = type;
+document.querySelector('#detectedWeek').textContent = week;
+
+analysis.hidden = false;
   });
 }
