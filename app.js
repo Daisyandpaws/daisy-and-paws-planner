@@ -83,12 +83,48 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
     localStorage.setItem('planningImportType', planType);
 
     if (planType === 'weekly') {
-  const weeklyBoxes = document.querySelectorAll('#week [data-w]');
+  // Look for "Week beginning: 28 September 2026"
+  const dateMatch = text.match(
+    /week\s*beginning\s*:?\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/i
+  );
 
-  if (!weeklyBoxes.length) {
-    alert('Weekly planning boxes could not be found.');
-    return;
+  if (dateMatch) {
+    const day = parseInt(dateMatch[1], 10);
+
+    const months = {
+      january: 0,
+      february: 1,
+      march: 2,
+      april: 3,
+      may: 4,
+      june: 5,
+      july: 6,
+      august: 7,
+      september: 8,
+      october: 9,
+      november: 10,
+      december: 11
+    };
+
+    const month = months[dateMatch[2].toLowerCase()];
+    const year = parseInt(dateMatch[3], 10);
+
+    if (month !== undefined) {
+      // Set the planner to the imported week
+      monday = new Date(year, month, day, 12, 0, 0, 0);
+
+      // Make sure it is actually Monday
+      monday.setDate(
+        monday.getDate() - ((monday.getDay() + 6) % 7)
+      );
+
+      renderWeek();
+    }
   }
+
+  const weeklyBoxes = Array.from(
+    document.querySelectorAll('#weekGrid textarea[data-w]')
+  );
 
   const dayNames = [
     'Monday',
@@ -100,22 +136,34 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
 
   let foundDays = false;
 
-  dayNames.forEach((day, index) => {
+  dayNames.forEach((dayName, index) => {
     const nextDay = dayNames[index + 1];
 
-    const pattern = nextDay
-      ? new RegExp(
-          day + '\\s*:?([\\s\\S]*?)(?=' + nextDay + '\\s*:?)',
-          'i'
-        )
-      : new RegExp(
-          day + '\\s*:?([\\s\\S]*)',
-          'i'
-        );
+    let pattern;
+
+    if (nextDay) {
+      pattern = new RegExp(
+        dayName +
+          '\\s*:?\\s*([\\s\\S]*?)(?=\\n\\s*' +
+          nextDay +
+          '\\s*:?|$)',
+        'i'
+      );
+    } else {
+      pattern = new RegExp(
+        dayName + '\\s*:?\\s*([\\s\\S]*)$',
+        'i'
+      );
+    }
 
     const match = text.match(pattern);
 
-    if (match && match[1].trim() && weeklyBoxes[index]) {
+    if (
+      match &&
+      match[1] &&
+      match[1].trim() &&
+      weeklyBoxes[index]
+    ) {
       const content = match[1].trim();
       const storageKey = weeklyBoxes[index].dataset.w;
 
@@ -126,15 +174,25 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
     }
   });
 
+  // If the imported document does not contain
+  // Monday/Tuesday/etc headings, put it into Monday.
   if (!foundDays && weeklyBoxes[0]) {
+    let content = text;
+
+    // Remove the week-beginning line from the lesson text
+    content = content.replace(
+      /week\s*beginning\s*:?\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/i,
+      ''
+    );
+
+    content = content.trim();
+
     const storageKey = weeklyBoxes[0].dataset.w;
 
-    localStorage.setItem(storageKey, text);
-    weeklyBoxes[0].value = text;
+    localStorage.setItem(storageKey, content);
+    weeklyBoxes[0].value = content;
   }
 
   alert('Your weekly planning has been imported successfully.');
   return;
 }
-  });
-});
