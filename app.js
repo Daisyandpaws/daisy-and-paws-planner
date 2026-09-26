@@ -221,24 +221,36 @@ document.querySelectorAll('.planningImportBtn').forEach((btn) => {
     }
   });
 
-  // If the imported document does not contain
-  // Monday/Tuesday/etc headings, put it into Monday.
-  if (!foundDays && weeklyBoxes[0]) {
-    let content = text;
+  // If there are no Monday-Friday headings,
+// do not dump the whole document into Monday.
+if (!foundDays) {
 
-    // Remove the week-beginning line from the lesson text
-    content = content.replace(
-      /week\s*beginning\s*:?\s*\d{1,2}\s+[A-Za-z]+\s+\d{4}/i,
-      ''
+    const weekRangeMatch = text.match(
+        /\bWeeks?\s*:?\s*(\d+)\s*[-–]\s*(\d+)\b/i
     );
 
-    content = content.trim();
+    const singleWeekMatch = text.match(
+        /\bWeek\s*:?\s*(\d+)\b/i
+    );
 
-    const storageKey = weeklyBoxes[0].dataset.w;
-
-    localStorage.setItem(storageKey, content);
-    weeklyBoxes[0].value = content;
-  }
+    if (weekRangeMatch) {
+        alert(
+            'Daisy & Paws has recognised planning for Weeks ' +
+            weekRangeMatch[1] + '–' + weekRangeMatch[2] +
+            '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
+        );
+    } else if (singleWeekMatch) {
+        alert(
+            'Daisy & Paws has recognised planning for Week ' +
+            singleWeekMatch[1] +
+            '.\n\nThis document does not contain Monday–Friday headings, so nothing has been placed into individual days.'
+        );
+    } else {
+        alert(
+            'Daisy & Paws has recognised the planning, but it does not contain Monday–Friday headings.\n\nNothing has been placed into individual days.'
+        );
+    }
+}
 
   alert('Your weekly planning has been imported successfully.');
   return;
