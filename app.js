@@ -465,3 +465,101 @@ analysis.hidden = false;
   });
 }
 })();
+
+// =====================================================
+// DAISY & PAWS - MASTER WEEKLY TIMETABLE
+// =====================================================
+
+(function () {
+  const grid = document.getElementById('timetableGrid');
+
+  // Stop safely if the timetable area isn't present
+  if (!grid) return;
+
+  const days = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday'
+  ];
+
+  const times = [
+    '8:45',
+    '9:00',
+    '10:00',
+    '10:45',
+    '11:00',
+    '12:00',
+    '13:00',
+    '13:30',
+    '14:30'
+  ];
+
+  const storageKey = 'daisyPawsMasterTimetable';
+
+  let timetable = {};
+
+  try {
+    timetable =
+      JSON.parse(localStorage.getItem(storageKey)) || {};
+  } catch (error) {
+    timetable = {};
+  }
+
+  function saveTimetable() {
+    localStorage.setItem(
+      storageKey,
+      JSON.stringify(timetable)
+    );
+  }
+
+  function renderTimetable() {
+    grid.innerHTML = '';
+
+    // TIME heading
+    const corner = document.createElement('div');
+    corner.className = 'ttHeader ttTimeHeader';
+    corner.textContent = 'Time';
+    grid.appendChild(corner);
+
+    // DAY headings
+    days.forEach(day => {
+      const header = document.createElement('div');
+      header.className = 'ttHeader';
+      header.textContent = day;
+      grid.appendChild(header);
+    });
+
+    // LESSON ROWS
+    times.forEach(time => {
+
+      const timeBox = document.createElement('div');
+      timeBox.className = 'ttTime';
+      timeBox.textContent = time;
+      grid.appendChild(timeBox);
+
+      days.forEach(day => {
+
+        const cell = document.createElement('textarea');
+
+        cell.className = 'ttCell';
+        cell.placeholder = 'Subject / lesson';
+
+        const key = day + '-' + time;
+
+        cell.value = timetable[key] || '';
+
+        cell.addEventListener('input', () => {
+          timetable[key] = cell.value;
+          saveTimetable();
+        });
+
+        grid.appendChild(cell);
+      });
+    });
+  }
+
+  renderTimetable();
+
+})();
