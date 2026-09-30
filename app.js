@@ -561,5 +561,61 @@ analysis.hidden = false;
   }
 
   renderTimetable();
+// ========================================
+// DAISY & PAWS — TIMETABLE → WEEKLY PLANNER
+// ========================================
 
+// Return all timetable lessons for one day,
+// in the same order as the timetable time slots.
+function getTimetableLessonsForDay(day) {
+  const lessons = [];
+
+  if (!day || typeof timetable !== 'object') {
+    return lessons;
+  }
+
+  Object.keys(timetable).forEach(key => {
+    if (!key.startsWith(day + '_')) return;
+
+    const lesson = (timetable[key] || '').trim();
+    if (!lesson) return;
+
+    const time = key.substring((day + '_').length);
+
+    lessons.push({
+      day: day,
+      time: time,
+      subject: lesson
+    });
+  });
+
+  // Put lessons into timetable order
+  lessons.sort((a, b) => a.time.localeCompare(b.time));
+
+  return lessons;
+}
+
+
+// Build a Monday–Friday timetable map
+function getWeeklyTimetableMap() {
+  const days = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday'
+  ];
+
+  const weekMap = {};
+
+  days.forEach(day => {
+    weekMap[day] = getTimetableLessonsForDay(day);
+  });
+
+  return weekMap;
+}
+
+
+// Make the timetable available to the planning importer
+window.DP_GET_WEEKLY_TIMETABLE = getWeeklyTimetableMap;
 })();
