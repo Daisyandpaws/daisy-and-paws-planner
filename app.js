@@ -486,63 +486,135 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
 })();
 
 // =====================================================
-// DAISY & PAWS - MASTER WEEKLY TIMETABLE
+// DAISY & PAWS - FLEXIBLE DEFAULT + WEEKLY TIMETABLE
 // =====================================================
 
 (function () {
   const grid = document.getElementById('timetableGrid');
-
-  // Stop safely if the timetable area isn't present
   if (!grid) return;
 
-  const days = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday'
-  ];
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const times = ['8:45', '9:00', '10:00', '10:45', '11:00', '12:00', '13:00', '13:30', '14:30'];
 
-  const times = [
-    '8:45',
-    '9:00',
-    '10:00',
-    '10:45',
-    '11:00',
-    '12:00',
-    '13:00',
-    '13:30',
-    '14:30'
-  ];
+  // Keep the existing key so nobody loses the timetable they already entered.
+  const defaultStorageKey = 'daisyPawsMasterTimetable';
+  const weeklyStoragePrefix = 'daisyPawsWeeklyTimetable:';
 
-  const storageKey = 'daisyPawsMasterTimetable';
+  function readJSON(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key)) || {};
+    } catch (error) {
+      return {};
+    }
+  }
 
+  function writeJSON(key, value) {
+    localStorage.setItem(key, JSON.stringify(value));
+  }
+
+  function mondayOf(date) {
+    const d = new Date(date);
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d;
+  }
+
+  function isoDate(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function weekStorageKey(date) {
+    return weeklyStoragePrefix + isoDate(mondayOf(date));
+  }
+
+  function weekLabel(date) {
+    const start = mondayOf(date);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 4);
+    return `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+
+  let mode = 'week';
+  let selectedWeek = mondayOf(new Date());
+  let defaultTimetable = readJSON(defaultStorageKey);
   let timetable = {};
 
-  try {
-    timetable =
-      JSON.parse(localStorage.getItem(storageKey)) || {};
-  } catch (error) {
-    timetable = {};
+  // Add controls without requiring any HTML changes.
+  const controls = document.createElement('div');
+  controls.className = 'ttControls';
+  controls.style.display = 'flex';
+  controls.style.flexWrap = 'wrap';
+  controls.style.gap = '8px';
+  controls.style.alignItems = 'center';
+  controls.style.marginBottom = '14px';
+
+  const defaultBtn = document.createElement('button');
+  defaultBtn.type = 'button';
+  defaultBtn.textContent = 'Default timetable';
+
+  const weekBtn = document.createElement('button');
+  weekBtn.type = 'button';
+  weekBtn.textContent = 'This week';
+
+  const prevBtn = document.createElement('button');
+  prevBtn.type = 'button';
+  prevBtn.textContent = '← Previous week';
+
+  const label = document.createElement('strong');
+  label.style.minWidth = '150px';
+  label.style.textAlign = 'center';
+
+  const nextBtn = document.createElement('button');
+  nextBtn.type = 'button';
+  nextBtn.textContent = 'Next week →';
+
+  const copyDefaultBtn = document.createElement('button');
+  copyDefaultBtn.type = 'button';
+  copyDefaultBtn.textContent = 'Copy default to this week';
+
+  const copyPreviousBtn = document.createElement('button');
+  copyPreviousBtn.type = 'button';
+  copyPreviousBtn.textContent = 'Copy previous week';
+
+  controls.append(defaultBtn, weekBtn, prevBtn, label, nextBtn, copyDefaultBtn, copyPreviousBtn);
+  grid.parentNode.insertBefore(controls, grid);
+
+  function loadSelectedWeek() {
+    timetable = readJSON(weekStorageKey(selectedWeek));
   }
 
   function saveTimetable() {
-    localStorage.setItem(
-      storageKey,
-      JSON.stringify(timetable)
-    );
+    if (mode === 'default') {
+      defaultTimetable = timetable;
+      writeJSON(defaultStorageKey, timetable);
+    } else {
+      writeJSON(weekStorageKey(selectedWeek), timetable);
+    }
+  }
+
+  function updateControls() {
+    const isDefault = mode === 'default';
+    label.textContent = isDefault ? 'Default timetable' : weekLabel(selectedWeek);
+    prevBtn.hidden = isDefault;
+    nextBtn.hidden = isDefault;
+    copyDefaultBtn.hidden = isDefault;
+    copyPreviousBtn.hidden = isDefault;
+    defaultBtn.disabled = isDefault;
+    weekBtn.disabled = !isDefault;
   }
 
   function renderTimetable() {
+    updateControls();
     grid.innerHTML = '';
 
-    // TIME heading
     const corner = document.createElement('div');
     corner.className = 'ttHeader ttTimeHeader';
     corner.textContent = 'Time';
     grid.appendChild(corner);
 
-    // DAY headings
     days.forEach(day => {
       const header = document.createElement('div');
       header.className = 'ttHeader';
@@ -550,23 +622,18 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
       grid.appendChild(header);
     });
 
-    // LESSON ROWS
     times.forEach(time => {
-
       const timeBox = document.createElement('div');
       timeBox.className = 'ttTime';
       timeBox.textContent = time;
       grid.appendChild(timeBox);
 
       days.forEach(day => {
-
         const cell = document.createElement('textarea');
-
         cell.className = 'ttCell';
         cell.placeholder = 'Subject / lesson';
 
         const key = day + '-' + time;
-
         cell.value = timetable[key] || '';
 
         cell.addEventListener('input', () => {
@@ -579,94 +646,114 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
     });
   }
 
+  defaultBtn.addEventListener('click', () => {
+    mode = 'default';
+    timetable = { ...defaultTimetable };
+    renderTimetable();
+  });
+
+  weekBtn.addEventListener('click', () => {
+    mode = 'week';
+    loadSelectedWeek();
+    renderTimetable();
+  });
+
+  prevBtn.addEventListener('click', () => {
+    selectedWeek.setDate(selectedWeek.getDate() - 7);
+    loadSelectedWeek();
+    renderTimetable();
+  });
+
+  nextBtn.addEventListener('click', () => {
+    selectedWeek.setDate(selectedWeek.getDate() + 7);
+    loadSelectedWeek();
+    renderTimetable();
+  });
+
+  copyDefaultBtn.addEventListener('click', () => {
+    timetable = { ...defaultTimetable };
+    saveTimetable();
+    renderTimetable();
+  });
+
+  copyPreviousBtn.addEventListener('click', () => {
+    const previous = new Date(selectedWeek);
+    previous.setDate(previous.getDate() - 7);
+    timetable = { ...readJSON(weekStorageKey(previous)) };
+    saveTimetable();
+    renderTimetable();
+  });
+
+  // Start on this calendar week's timetable. Existing master timetable remains
+  // safely available under "Default timetable" and can be copied into any week.
+  loadSelectedWeek();
   renderTimetable();
-// ========================================
-// DAISY & PAWS — TIMETABLE → WEEKLY PLANNER
-// ========================================
 
-// Return all timetable lessons for one day,
-// in the same order as the timetable time slots.
-function getTimetableLessonsForDay(day) {
-  const lessons = [];
+  // ========================================
+  // DAISY & PAWS — TIMETABLE → PLANNING API
+  // ========================================
 
-  if (!day || typeof timetable !== 'object') {
+  function getTimetableForWeek(date) {
+    return readJSON(weekStorageKey(date));
+  }
+
+  function getTimetableLessonsForDay(day, sourceTimetable) {
+    const lessons = [];
+    const source = sourceTimetable || timetable;
+    if (!day || !source || typeof source !== 'object') return lessons;
+
+    Object.keys(source).forEach(key => {
+      if (!key.startsWith(day + '-')) return;
+      const lesson = String(source[key] || '').trim();
+      if (!lesson) return;
+      const time = key.substring((day + '-').length);
+      lessons.push({ day, time, subject: lesson });
+    });
+
+    lessons.sort((a, b) => a.time.localeCompare(b.time));
     return lessons;
   }
 
-  Object.keys(timetable).forEach(key => {
-    if (!key.startsWith(day + '-')) return;
-
-    const lesson = (timetable[key] || '').trim();
-    if (!lesson) return;
-
-    const time = key.substring((day + '-').length);
-
-    lessons.push({
-      day: day,
-      time: time,
-      subject: lesson
+  function getWeeklyTimetableMap(date) {
+    const source = date ? getTimetableForWeek(date) : timetable;
+    const weekMap = {};
+    days.forEach(day => {
+      weekMap[day] = getTimetableLessonsForDay(day, source);
     });
-  });
+    return weekMap;
+  }
 
-  // Put lessons into timetable order
-  lessons.sort((a, b) => a.time.localeCompare(b.time));
+  function findSubjectSlots(subject, date) {
+    const wanted = String(subject || '').trim().toLowerCase();
+    if (!wanted) return [];
 
-  return lessons;
-}
+    const aliases = {
+      maths: ['maths', 'mathematics'],
+      english: ['english', 'literacy', 'writing'],
+      pe: ['pe', 'physical education'],
+      dt: ['dt', 'design technology', 'design & technology'],
+      computing: ['computing', 'ict'],
+      pshe: ['pshe', 'personal social health education']
+    };
 
+    const terms = aliases[wanted] || [wanted];
+    const weekMap = getWeeklyTimetableMap(date);
+    const matches = [];
 
-// Build a Monday–Friday timetable map
-function getWeeklyTimetableMap() {
-  const days = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday'
-  ];
-
-  const weekMap = {};
-
-  days.forEach(day => {
-    weekMap[day] = getTimetableLessonsForDay(day);
-  });
-
-  return weekMap;
-}
-
-
-// Find timetable slots that match a subject name.
-// This is preview-only: it never writes to Weekly Planning.
-function findSubjectSlots(subject) {
-  const wanted = String(subject || '').trim().toLowerCase();
-  if (!wanted) return [];
-
-  const aliases = {
-    maths: ['maths', 'mathematics'],
-    english: ['english', 'literacy', 'writing'],
-    pe: ['pe', 'physical education'],
-    dt: ['dt', 'design technology', 'design & technology'],
-    computing: ['computing', 'ict'],
-    pshe: ['pshe', 'personal social health education']
-  };
-
-  const terms = aliases[wanted] || [wanted];
-  const weekMap = getWeeklyTimetableMap();
-  const matches = [];
-
-  Object.values(weekMap).forEach(dayLessons => {
-    dayLessons.forEach(slot => {
-      const cellText = String(slot.subject || '').trim().toLowerCase();
-      if (terms.some(term => cellText === term || cellText.includes(term))) {
-        matches.push(slot);
-      }
+    Object.values(weekMap).forEach(dayLessons => {
+      dayLessons.forEach(slot => {
+        const cellText = String(slot.subject || '').trim().toLowerCase();
+        if (terms.some(term => cellText === term || cellText.includes(term))) {
+          matches.push(slot);
+        }
+      });
     });
-  });
 
-  return matches;
-}
+    return matches;
+  }
 
-// Make the timetable available to the planning importer
-window.DP_GET_WEEKLY_TIMETABLE = getWeeklyTimetableMap;
-window.DP_FIND_SUBJECT_SLOTS = findSubjectSlots;
+  window.DP_GET_WEEKLY_TIMETABLE = getWeeklyTimetableMap;
+  window.DP_FIND_SUBJECT_SLOTS = findSubjectSlots;
+  window.DP_GET_TIMETABLE_FOR_WEEK = getTimetableForWeek;
+  window.DP_TIMETABLE_SELECTED_WEEK = () => isoDate(selectedWeek);
 })();
