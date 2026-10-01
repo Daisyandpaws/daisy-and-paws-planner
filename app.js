@@ -462,6 +462,25 @@ document.querySelector('#detectedType').textContent = type;
 document.querySelector('#detectedWeek').textContent = week;
 
 analysis.hidden = false;
+
+// Preview-only timetable matching test. Nothing is written to the planner.
+if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'function') {
+  const slots = window.DP_FIND_SUBJECT_SLOTS(subject);
+
+  if (slots.length) {
+    const slotList = slots
+      .map(slot => `${slot.day} ${slot.time} — ${slot.subject}`)
+      .join('\n');
+
+    alert(
+      `${subject} timetable slots found 🌼\n\n${slotList}\n\nPreview only — nothing has been added to Weekly Planning.`
+    );
+  } else {
+    alert(
+      `${subject} was recognised, but no matching ${subject} slots were found in your saved timetable.\n\nPreview only — nothing has been changed.`
+    );
+  }
+}
   });
 }
 })();
@@ -575,12 +594,12 @@ function getTimetableLessonsForDay(day) {
   }
 
   Object.keys(timetable).forEach(key => {
-    if (!key.startsWith(day + '_')) return;
+    if (!key.startsWith(day + '-')) return;
 
     const lesson = (timetable[key] || '').trim();
     if (!lesson) return;
 
-    const time = key.substring((day + '_').length);
+    const time = key.substring((day + '-').length);
 
     lessons.push({
       day: day,
@@ -616,6 +635,38 @@ function getWeeklyTimetableMap() {
 }
 
 
+// Find timetable slots that match a subject name.
+// This is preview-only: it never writes to Weekly Planning.
+function findSubjectSlots(subject) {
+  const wanted = String(subject || '').trim().toLowerCase();
+  if (!wanted) return [];
+
+  const aliases = {
+    maths: ['maths', 'mathematics'],
+    english: ['english', 'literacy', 'writing'],
+    pe: ['pe', 'physical education'],
+    dt: ['dt', 'design technology', 'design & technology'],
+    computing: ['computing', 'ict'],
+    pshe: ['pshe', 'personal social health education']
+  };
+
+  const terms = aliases[wanted] || [wanted];
+  const weekMap = getWeeklyTimetableMap();
+  const matches = [];
+
+  Object.values(weekMap).forEach(dayLessons => {
+    dayLessons.forEach(slot => {
+      const cellText = String(slot.subject || '').trim().toLowerCase();
+      if (terms.some(term => cellText === term || cellText.includes(term))) {
+        matches.push(slot);
+      }
+    });
+  });
+
+  return matches;
+}
+
 // Make the timetable available to the planning importer
 window.DP_GET_WEEKLY_TIMETABLE = getWeeklyTimetableMap;
+window.DP_FIND_SUBJECT_SLOTS = findSubjectSlots;
 })();
