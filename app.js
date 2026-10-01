@@ -756,4 +756,302 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   window.DP_FIND_SUBJECT_SLOTS = findSubjectSlots;
   window.DP_GET_TIMETABLE_FOR_WEEK = getTimetableForWeek;
   window.DP_TIMETABLE_SELECTED_WEEK = () => isoDate(selectedWeek);
+
+  // ============================================================
+// DAISY & PAWS — TIMETABLE DOCUMENT UPLOAD
+// Preview first. Nothing is saved until the teacher confirms.
+// ============================================================
+
+function addTimetableUploadControls() {
+  const grid = document.querySelector('#timetableGrid');
+  if (!grid) return;
+
+  const section = grid.closest('section');
+  if (!section || section.querySelector('#timetableUploadBtn')) return;
+
+  const controls = document.createElement('div');
+  controls.className = 'toolbar';
+  controls.style.marginBottom = '18px';
+
+  controls.innerHTML = `
+    <button type="button" class="secondary" id="timetableUploadBtn">
+      🌼 Upload timetable
+    </button>
+    <input
+      type="file"
+      id="timetableUploadFile"
+      accept=".docx"
+      style="display:none"
+    >
+  `;
+
+  grid.parentNode.insertBefore(controls, grid);
+
+  const button = controls.querySelector('#timetableUploadBtn');
+  const input = controls.querySelector('#timetableUploadFile');
+
+  button.onclick = () => input.click();
+
+  input.onchange = async () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      alert(
+        'For this first version, Daisy & Paws can import Word (.docx) timetables.'
+      );
+      input.value = '';
+      return;
+    }
+
+    await previewUploadedTimetable(file);
+    input.value = '';
+  };
+}
+
+
+async function previewUploadedTimetable(file) {
+  try {
+    if (typeof JSZip === 'undefined') {
+      alert(
+        'The Word document reader is not available on this page yet.\\n\\n' +
+        'Nothing has been changed.'
+      );
+      return;
+    }
+
+    const buffer = await file.arrayBuffer();
+    const zip = await JSZip.loadAsync(buffer);
+
+    const documentXml = await zip
+      .file('word/document.xml')
+      .async('string');
+
+    const parser = new DOMParser();
+    const xml = parser.parseFromString(documentXml, 'application/xml');
+
+    const textNodes = [...xml.getElementsByTagNameNS('*', 't')];
+
+    const fullText = textNodes
+      .map(node => node.textContent || '')
+      .join(' ')
+      .replace(/\\s+/g, ' ')
+      .trim();
+
+    // --------------------------------------------------------
+    // Basic document information
+    // --------------------------------------------------------
+
+    const classMatch = fullText.match(
+      /\\bClass\\s*[:\\-]?\\s*([A-Za-z0-9.]+)/i
+    );
+
+    const termMatch = fullText.match(
+      /\\bTerm\\s*[:\\-]?\\s*(\\d+)/i
+    );
+
+    const weekMatch = fullText.match(
+      /\\bWeek\\s*[:\\-]?\\s*(\\d+)/i
+    );
+
+    const detectedClass = classMatch ? classMatch[1] : '';
+    const detectedTerm = termMatch ? termMatch[1] : '';
+    const detectedWeek = weekMatch ? weekMatch[1] : '';
+
+    // --------------------------------------------------------
+    // Read Word table rows/cells
+    // --------------------------------------------------------
+
+    const rows = [...xml.getElementsByTagNameNS('*', 'tr')];
+
+    const tableRows = rows.map(row => {
+      const cells = [...row.getElementsByTagNameNS('*', 'tc')];
+
+      return cells.map(cell => {
+        const parts = [...cell.getElementsByTagNameNS('*', 't')]
+          .map(node => node.textContent || '');
+
+        return parts
+          .join(' ')
+          .replace(/\\s+/g, ' ')
+          .trim();
+      });
+    }).filter(row => row.some(cell => cell));
+
+    // --------------------------------------------------------
+    // Recognise day columns
+    // --------------------------------------------------------
+
+    const dayAliases = {
+      Monday: ['monday', 'mon'],
+      Tuesday: ['tuesday', 'tues', 'tue'],
+      Wednesday: ['wednesday', 'weds', 'wed'],
+      Thursday: ['thursday', 'thurs', 'thu'],
+      Friday: ['friday', 'fri']
+    };
+
+    function recogniseDay(value) {
+      const clean = String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z]/g, '');
+
+      for (const [day, aliases] of Object.entries(dayAliases)) {
+        if (aliases.includes(clean)) return day;
+      }
+
+      return null;
+    }
+
+    let headerRowIndex = -1;
+    let dayColumns = {};
+
+    tableRows.forEach((row, rowIndex) => {
+      const found = {};
+
+      row.forEach((cell, columnIndex) => {
+        const day = recogniseDay(cell);
+        if (day) found[day] = columnIndex;
+      });
+
+      if (
+        Object.keys(found).length >
+        Object.keys(dayColumns).length
+      ) {
+        headerRowIndex = rowIndex;
+        dayColumns = found;
+      }
+    });
+
+    if (Object.keys(dayColumns).length < 3) {
+      alert(
+        'Daisy & Paws opened the Word timetable, but could not ' +
+        'confidently identify the weekday columns.\\n\\n' +
+        'Nothing has been changed.'
+      );
+      return;
+    }
+
+    // --------------------------------------------------------
+    // Extract timetable sessions
+    // --------------------------------------------------------
+
+    const sessions = [];
+
+    function looksLikeTime(value) {
+      return /^\\s*\\d{1,2}[:.]\\d{2}\\s*(?:am|pm)?\\s*$/i.test(
+        String(value || '')
+      );
+    }
+
+    for (
+      let rowIndex = headerRowIndex + 1;
+      rowIndex < tableRows.length;
+      rowIndex++
+    ) {
+      const row = tableRows[rowIndex];
+
+      let time = '';
+
+      for (const cell of row) {
+        if (looksLikeTime(cell)) {
+          time = cell
+            .trim()
+            .replace('.', ':')
+            .replace(/\\s+/g, '');
+          break;
+        }
+      }
+
+      Object.entries(dayColumns).forEach(([day, columnIndex]) => {
+        const value = String(row[columnIndex] || '').trim();
+
+        if (!value) return;
+
+        if (recogniseDay(value)) return;
+
+        sessions.push({
+          day,
+          time,
+          text: value
+        });
+      });
+    }
+
+    if (!sessions.length) {
+      alert(
+        'Daisy & Paws recognised the timetable headings, but ' +
+        'could not identify any timetable sessions yet.\\n\\n' +
+        'Nothing has been changed.'
+      );
+      return;
+    }
+
+    // --------------------------------------------------------
+    // PREVIEW ONLY
+    // --------------------------------------------------------
+
+    const details = [];
+
+    if (detectedClass) {
+      details.push('Class ' + detectedClass);
+    }
+
+    if (detectedTerm) {
+      details.push('Term ' + detectedTerm);
+    }
+
+    if (detectedWeek) {
+      details.push('Week ' + detectedWeek);
+    }
+
+    const preview = sessions
+      .slice(0, 30)
+      .map(session => {
+        const when = session.time
+          ? session.day + ' ' + session.time
+          : session.day;
+
+        return when + ' — ' + session.text;
+      })
+      .join('\\n');
+
+    const more =
+      sessions.length > 30
+        ? '\\n\\n…and ' +
+          (sessions.length - 30) +
+          ' more timetable entries.'
+        : '';
+
+    alert(
+      'Timetable recognised 🌼\\n\\n' +
+      (details.length
+        ? details.join(' · ') + '\\n\\n'
+        : '') +
+      preview +
+      more +
+      '\\n\\nPREVIEW ONLY — nothing has been added to your timetable.'
+    );
+
+    // Keep the preview available for the next stage.
+    // We are deliberately NOT saving anything yet.
+    window.DP_LAST_TIMETABLE_IMPORT_PREVIEW = {
+      fileName: file.name,
+      className: detectedClass,
+      term: detectedTerm,
+      week: detectedWeek,
+      sessions
+    };
+
+  } catch (error) {
+    console.error('Timetable import error:', error);
+
+    alert(
+      'Daisy & Paws could not read that timetable.\\n\\n' +
+      'Nothing has been changed.'
+    );
+  }
+}
+
+
+addTimetableUploadControls();
 })();
