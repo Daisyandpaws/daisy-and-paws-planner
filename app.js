@@ -646,52 +646,123 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
     });
   }
 // Receive a timetable imported from Daisy & Paws Word timetable reader.
+// Uses recognised times where possible and falls back safely to lesson order.
 window.addEventListener('dp-import-timetable', event => {
-  const imported = event.detail;
+    const imported = event.detail;
 
-  if (!imported || typeof imported !== 'object') return;
+    if (!imported || typeof imported !== 'object') return;
 
-  const slotTimes = [
-    '8:45',
-    '9:00',
-    '10:00',
-    '10:45',
-    '11:00',
-    '12:00',
-    '13:00',
-    '13:30',
-    '14:30'
-  ];
+    const slotTimes = [
+        '8:45',
+        '9:00',
+        '10:00',
+        '10:45',
+        '11:00',
+        '12:00',
+        '13:00',
+        '13:30',
+        '14:30'
+    ];
 
-  const importedTimetable = {};
+    const importedTimetable = {};
 
-  days.forEach(day => {
-    const entries = Array.isArray(imported[day])
-      ? imported[day]
-      : [];
+    // Convert a time such as 9:30 or 9.30 into minutes after midnight.
+    function timeToMinutes(value) {
+        if (!value) return null;
 
-    entries.forEach((entry, index) => {
-      if (index >= slotTimes.length) return;
+        const match = String(value).match(
+            /\b([0-1]?\d|2[0-3])\s*[:.]\s*([0-5]\d)\b/
+        );
 
-      const text =
-        typeof entry === 'string'
-          ? entry
-          : (entry.text || entry.title || entry.subject || '');
+        if (!match) return null;
 
-      if (!text) return;
+        return (Number(match[1]) * 60) + Number(match[2]);
+    }
 
-      const key = day + '-' + slotTimes[index];
+    // Find the Daisy & Paws timetable row nearest to a recognised time.
+    function nearestSlot(timeText) {
+        const minutes = timeToMinutes(timeText);
+        if (minutes === null) return null;
 
-      importedTimetable[key] = text.trim();
+        let bestSlot = null;
+        let smallestDifference = Infinity;
+
+        slotTimes.forEach(slot => {
+            const slotMinutes = timeToMinutes(slot);
+            const difference = Math.abs(slotMinutes - minutes);
+
+            if (difference < smallestDifference) {
+                smallestDifference = difference;
+                bestSlot = slot;
+            }
+        });
+
+        return bestSlot;
+    }
+
+    // Tidy common artefacts from imported Word tables.
+    function cleanImportedText(value) {
+        return String(value || '')
+            .replace(/\s*\|\s*/g, ' | ')
+            .replace(/^\s*\|\s*/, '')
+            .replace(/\s*\|\s*$/, '')
+            .replace(/\bEnglis\s+h\b/gi, 'English')
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+    }
+
+    days.forEach(day => {
+        const entries = Array.isArray(imported[day])
+            ? imported[day]
+            : [];
+
+        const usedSlots = new Set();
+
+        entries.forEach((entry, index) => {
+            let text =
+                typeof entry === 'string'
+                    ? entry
+                    : (entry.text || entry.title || entry.subject || '');
+
+            text = cleanImportedText(text);
+
+            if (!text) return;
+
+            // First preference: use an explicit time from the imported entry.
+            let chosenSlot = nearestSlot(text);
+
+            // If that slot is already occupied, find the next free slot.
+            if (chosenSlot && usedSlots.has(chosenSlot)) {
+                const startIndex = slotTimes.indexOf(chosenSlot);
+
+                chosenSlot =
+                    slotTimes
+                        .slice(startIndex + 1)
+                        .find(slot => !usedSlots.has(slot)) || null;
+            }
+
+            // No recognised time: use the next available timetable row.
+            if (!chosenSlot) {
+                chosenSlot =
+                    slotTimes.find(slot => !usedSlots.has(slot)) || null;
+            }
+
+            // More imported entries than available timetable rows.
+            if (!chosenSlot) return;
+
+            const key = day + '-' + chosenSlot;
+
+            importedTimetable[key] = text;
+            usedSlots.add(chosenSlot);
+        });
     });
-  });
 
-  timetable = importedTimetable;
+    timetable = importedTimetable;
 
-  saveTimetable();
-  renderTimetable();
+    saveTimetable();
+    renderTimetable();
 
-  alert('Your timetable has been added 🌼');
+    alert('Your timetable has been added 🌼');
 });
   defaultBtn.addEventListener('click', () => {
     mode = 'default';
