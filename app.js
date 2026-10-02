@@ -937,87 +937,11 @@ async function previewUploadedTimetable(file) {
 
     const sessions = [];
 
-    // Flexible weekday recognition for different school timetable layouts
-const dayAliases = {
-  MONDAY: 'Monday',
-  MON: 'Monday',
-  TUESDAY: 'Tuesday',
-  TUES: 'Tuesday',
-  TUE: 'Tuesday',
-  WEDNESDAY: 'Wednesday',
-  WEDS: 'Wednesday',
-  WED: 'Wednesday',
-  THURSDAY: 'Thursday',
-  THURS: 'Thursday',
-  THUR: 'Thursday',
-  THU: 'Thursday',
-  FRIDAY: 'Friday',
-  FRI: 'Friday'
-};
-
-function normaliseDayHeading(value) {
-  const clean = String(value || '')
-    .trim()
-    .toUpperCase()
-    .replace(/[.:]/g, '');
-
-  return dayAliases[clean] || null;
-}
-
     function looksLikeTime(value) {
       return /^\\s*\\d{1,2}[:.]\\d{2}\\s*(?:am|pm)?\\s*$/i.test(
         String(value || '')
       );
     }
-    
-    // Second timetable reader:
-// supports documents where MON / TUES / WEDS / THURS / FRI
-// appear as separate sections instead of columns.
-function extractSectionStyleTimetable(rows) {
-  const found = [];
-  let currentDay = null;
-  let currentTime = '';
-
-  rows.forEach(row => {
-    const cells = Array.isArray(row) ? row : [row];
-
-    cells.forEach(rawCell => {
-      const value = String(rawCell || '').trim();
-      if (!value) return;
-
-      // A cell containing MON, TUES, WEDS etc. starts a new day.
-      const detectedDay = normaliseDayHeading(value);
-      if (detectedDay) {
-        currentDay = detectedDay;
-        currentTime = '';
-        return;
-      }
-
-      // Ignore anything before the first weekday heading.
-      if (!currentDay) return;
-
-      // Remember a time when one is encountered.
-      if (looksLikeTime(value)) {
-        currentTime = value
-          .replace('.', ':')
-          .replace(/\s+/g, ' ')
-          .trim();
-        return;
-      }
-
-      // Do not treat another weekday heading as a lesson.
-      if (normaliseDayHeading(value)) return;
-
-      found.push({
-        day: currentDay,
-        time: currentTime,
-        text: value
-      });
-    });
-  });
-
-  return found;
-}
 
     for (
       let rowIndex = headerRowIndex + 1;
@@ -1053,20 +977,15 @@ function extractSectionStyleTimetable(rows) {
       });
     }
 
-   if (!sessions.length) {
-    const sectionSessions = extractSectionStyleTimetable(tableRows);
-
-    if (sectionSessions.length) {
-        sessions.push(...sectionSessions);
-    } else {
-        alert(
-            'Daisy & Paws opened the timetable, but could not confidently ' +
-            'identify the lesson layout.\n\n' +
-            'Nothing has been changed.'
-        );
-        return;
+    if (!sessions.length) {
+      alert(
+        'Daisy & Paws recognised the timetable headings, but ' +
+        'could not identify any timetable sessions yet.\\n\\n' +
+        'Nothing has been changed.'
+      );
+      return;
     }
-}
+
     // --------------------------------------------------------
     // PREVIEW ONLY
     // --------------------------------------------------------
