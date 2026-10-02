@@ -601,15 +601,13 @@ const addButton = card.querySelector("#dpAddTimetableBtn");
 if (addButton) {
   addButton.addEventListener("click", () => {
 
-    console.log(
-      "Daisy & Paws timetable ready to import:",
-      grouped
+    window.dispatchEvent(
+      new CustomEvent("dp-import-timetable", {
+        detail: grouped
+      })
     );
 
-    alert(
-      "Your timetable has been checked and is ready to add 🌼"
-    );
-
+    overlay.remove();
   });
 }
     const close = () => overlay.remove();
