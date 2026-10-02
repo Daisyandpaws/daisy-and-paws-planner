@@ -645,7 +645,54 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
       });
     });
   }
+// Receive a timetable imported from Daisy & Paws Word timetable reader.
+window.addEventListener('dp-import-timetable', event => {
+  const imported = event.detail;
 
+  if (!imported || typeof imported !== 'object') return;
+
+  const slotTimes = [
+    '8:45',
+    '9:00',
+    '10:00',
+    '10:45',
+    '11:00',
+    '12:00',
+    '13:00',
+    '13:30',
+    '14:30'
+  ];
+
+  const importedTimetable = {};
+
+  days.forEach(day => {
+    const entries = Array.isArray(imported[day])
+      ? imported[day]
+      : [];
+
+    entries.forEach((entry, index) => {
+      if (index >= slotTimes.length) return;
+
+      const text =
+        typeof entry === 'string'
+          ? entry
+          : (entry.text || entry.title || entry.subject || '');
+
+      if (!text) return;
+
+      const key = day + '-' + slotTimes[index];
+
+      importedTimetable[key] = text.trim();
+    });
+  });
+
+  timetable = importedTimetable;
+
+  saveTimetable();
+  renderTimetable();
+
+  alert('Your timetable has been added 🌼');
+});
   defaultBtn.addEventListener('click', () => {
     mode = 'default';
     timetable = { ...defaultTimetable };
