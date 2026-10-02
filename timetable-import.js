@@ -537,15 +537,38 @@
       </div>
 
       <div style="
-        margin-top:20px;
-        color:#666;
-        font-size:.92rem;
-      ">
-        Daisy & Paws found
-        <strong>${sessions.length}</strong>
-        timetable sections/entries.
-        We will check this preview before allowing an import.
-      </div>
+  margin-top:20px;
+  color:#666;
+  font-size:.92rem;
+">
+  Daisy & Paws found
+  <strong>${sessions.length}</strong>
+  timetable sections/entries.
+</div>
+
+<div style="
+  margin-top:18px;
+  display:flex;
+  justify-content:flex-end;
+  gap:10px;
+">
+  <button
+    type="button"
+    id="dpImportTimetableConfirm"
+    style="
+      border:0;
+      border-radius:999px;
+      padding:13px 22px;
+      background:#b8c4a5;
+      color:white;
+      font-weight:700;
+      font-size:1rem;
+      cursor:pointer;
+    "
+  >
+    Add to my timetable 🌼
+  </button>
+</div>
     `;
 
     overlay.appendChild(card);
