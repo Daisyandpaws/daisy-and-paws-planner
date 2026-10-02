@@ -756,302 +756,231 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   window.DP_FIND_SUBJECT_SLOTS = findSubjectSlots;
   window.DP_GET_TIMETABLE_FOR_WEEK = getTimetableForWeek;
   window.DP_TIMETABLE_SELECTED_WEEK = () => isoDate(selectedWeek);
+})();
 
-  // ============================================================
-// DAISY & PAWS — TIMETABLE DOCUMENT UPLOAD
-// Preview first. Nothing is saved until the teacher confirms.
 // ============================================================
+// DAISY & PAWS — SAFE TIMETABLE IMPORTER (PREVIEW ONLY)
+// Standalone module: errors here do not stop the main planner.
+// Requires JSZip to be loaded in index.html.
+// ============================================================
+(() => {
+  'use strict';
 
-function addTimetableUploadControls() {
-  const grid = document.querySelector('#timetableGrid');
-  if (!grid) return;
-
-  const section = grid.closest('section');
-  if (!section || section.querySelector('#timetableUploadBtn')) return;
-
-  const controls = document.createElement('div');
-  controls.className = 'toolbar';
-  controls.style.marginBottom = '18px';
-
-  controls.innerHTML = `
-    <button type="button" class="secondary" id="timetableUploadBtn">
-      🌼 Upload timetable
-    </button>
-    <input
-      type="file"
-      id="timetableUploadFile"
-      accept=".docx"
-      style="display:none"
-    >
-  `;
-
-  grid.parentNode.insertBefore(controls, grid);
-
-  const button = controls.querySelector('#timetableUploadBtn');
-  const input = controls.querySelector('#timetableUploadFile');
-
-  button.onclick = () => input.click();
-
-  input.onchange = async () => {
-    const file = input.files && input.files[0];
-    if (!file) return;
-
-    if (!file.name.toLowerCase().endsWith('.docx')) {
-      alert(
-        'For this first version, Daisy & Paws can import Word (.docx) timetables.'
-      );
-      input.value = '';
-      return;
-    }
-
-    await previewUploadedTimetable(file);
-    input.value = '';
+  const DAY_ALIASES = {
+    MON: 'Monday', MONDAY: 'Monday',
+    TUE: 'Tuesday', TUES: 'Tuesday', TUESDAY: 'Tuesday',
+    WED: 'Wednesday', WEDS: 'Wednesday', WEDNESDAY: 'Wednesday',
+    THU: 'Thursday', THUR: 'Thursday', THURS: 'Thursday', THURSDAY: 'Thursday',
+    FRI: 'Friday', FRIDAY: 'Friday'
   };
-}
 
+  const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
 
-async function previewUploadedTimetable(file) {
-  try {
-    if (typeof JSZip === 'undefined') {
-      alert(
-        'The Word document reader is not available on this page yet.\\n\\n' +
-        'Nothing has been changed.'
-      );
-      return;
-    }
+  function dayFromText(value) {
+    const key = clean(value).toUpperCase().replace(/[.:]/g, '');
+    return DAY_ALIASES[key] || null;
+  }
 
-    const buffer = await file.arrayBuffer();
-    const zip = await JSZip.loadAsync(buffer);
+  function textOf(element) {
+    return clean([...element.getElementsByTagNameNS('*', 't')]
+      .map(n => n.textContent || '').join(' '));
+  }
 
-    const documentXml = await zip
-      .file('word/document.xml')
-      .async('string');
-
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(documentXml, 'application/xml');
-
-    const textNodes = [...xml.getElementsByTagNameNS('*', 't')];
-
-    const fullText = textNodes
-      .map(node => node.textContent || '')
-      .join(' ')
-      .replace(/\\s+/g, ' ')
-      .trim();
-
-    // --------------------------------------------------------
-    // Basic document information
-    // --------------------------------------------------------
-
-    const classMatch = fullText.match(
-      /\\bClass\\s*[:\\-]?\\s*([A-Za-z0-9.]+)/i
-    );
-
-    const termMatch = fullText.match(
-      /\\bTerm\\s*[:\\-]?\\s*(\\d+)/i
-    );
-
-    const weekMatch = fullText.match(
-      /\\bWeek\\s*[:\\-]?\\s*(\\d+)/i
-    );
-
-    const detectedClass = classMatch ? classMatch[1] : '';
-    const detectedTerm = termMatch ? termMatch[1] : '';
-    const detectedWeek = weekMatch ? weekMatch[1] : '';
-
-    // --------------------------------------------------------
-    // Read Word table rows/cells
-    // --------------------------------------------------------
-
-    const rows = [...xml.getElementsByTagNameNS('*', 'tr')];
-
-    const tableRows = rows.map(row => {
-      const cells = [...row.getElementsByTagNameNS('*', 'tc')];
-
-      return cells.map(cell => {
-        const parts = [...cell.getElementsByTagNameNS('*', 't')]
-          .map(node => node.textContent || '');
-
-        return parts
-          .join(' ')
-          .replace(/\\s+/g, ' ')
-          .trim();
-      });
-    }).filter(row => row.some(cell => cell));
-
-    // --------------------------------------------------------
-    // Recognise day columns
-    // --------------------------------------------------------
-
-    const dayAliases = {
-      Monday: ['monday', 'mon'],
-      Tuesday: ['tuesday', 'tues', 'tue'],
-      Wednesday: ['wednesday', 'weds', 'wed'],
-      Thursday: ['thursday', 'thurs', 'thu'],
-      Friday: ['friday', 'fri']
+  function parseMeta(fullText) {
+    const classMatch = fullText.match(/\bClass\s*[:\-]?\s*([A-Za-z0-9.]+)/i);
+    const termMatch = fullText.match(/\bTerm\s*[:\-]?\s*(\d+)/i);
+    const weekMatch = fullText.match(/\bWeek\s*[:\-]?\s*(\d+)/i);
+    return {
+      className: classMatch ? classMatch[1] : '',
+      term: termMatch ? termMatch[1] : '',
+      week: weekMatch ? weekMatch[1] : ''
     };
+  }
 
-    function recogniseDay(value) {
-      const clean = String(value || '')
-        .toLowerCase()
-        .replace(/[^a-z]/g, '');
+  function parseDaySections(xml) {
+    const paragraphs = [...xml.getElementsByTagNameNS('*', 'p')]
+      .map(textOf).filter(Boolean);
+    const byDay = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+    let currentDay = null;
 
-      for (const [day, aliases] of Object.entries(dayAliases)) {
-        if (aliases.includes(clean)) return day;
+    paragraphs.forEach(text => {
+      const day = dayFromText(text);
+      if (day) {
+        currentDay = day;
+        return;
       }
+      if (currentDay) byDay[currentDay].push(text);
+    });
 
-      return null;
-    }
+    return byDay;
+  }
 
-    let headerRowIndex = -1;
-    let dayColumns = {};
+  function parseTableColumns(xml) {
+    const byDay = { Monday: [], Tuesday: [], Wednesday: [], Thursday: [], Friday: [] };
+    const rows = [...xml.getElementsByTagNameNS('*', 'tr')];
+    let dayColumns = null;
+    let headerIndex = -1;
 
-    tableRows.forEach((row, rowIndex) => {
+    rows.forEach((row, ri) => {
+      const cells = [...row.getElementsByTagNameNS('*', 'tc')].map(textOf);
       const found = {};
-
-      row.forEach((cell, columnIndex) => {
-        const day = recogniseDay(cell);
-        if (day) found[day] = columnIndex;
+      cells.forEach((cell, ci) => {
+        const day = dayFromText(cell);
+        if (day) found[day] = ci;
       });
-
-      if (
-        Object.keys(found).length >
-        Object.keys(dayColumns).length
-      ) {
-        headerRowIndex = rowIndex;
-        dayColumns = found;
+      if (!dayColumns || Object.keys(found).length > Object.keys(dayColumns).length) {
+        if (Object.keys(found).length >= 3) {
+          dayColumns = found;
+          headerIndex = ri;
+        }
       }
     });
 
-    if (Object.keys(dayColumns).length < 3) {
-      alert(
-        'Daisy & Paws opened the Word timetable, but could not ' +
-        'confidently identify the weekday columns.\\n\\n' +
-        'Nothing has been changed.'
-      );
+    if (!dayColumns) return byDay;
+
+    rows.slice(headerIndex + 1).forEach(row => {
+      const cells = [...row.getElementsByTagNameNS('*', 'tc')].map(textOf);
+      Object.entries(dayColumns).forEach(([day, ci]) => {
+        const value = clean(cells[ci]);
+        if (value && !dayFromText(value)) byDay[day].push(value);
+      });
+    });
+    return byDay;
+  }
+
+  function score(byDay) {
+    return Object.values(byDay).reduce((n, arr) => n + arr.length, 0);
+  }
+
+  function makeModal(result) {
+    document.getElementById('dpTimetableImportModal')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'dpTimetableImportModal';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.38);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+
+    const card = document.createElement('div');
+    card.style.cssText = 'background:white;border-radius:18px;max-width:900px;width:100%;max-height:86vh;overflow:auto;padding:24px;box-shadow:0 18px 60px rgba(0,0,0,.25);font-family:inherit';
+
+    const meta = [
+      result.meta.className && `Class ${result.meta.className}`,
+      result.meta.term && `Term ${result.meta.term}`,
+      result.meta.week && `Week ${result.meta.week}`
+    ].filter(Boolean).join(' · ');
+
+    const title = document.createElement('h2');
+    title.textContent = 'Timetable recognised 🌼';
+    title.style.marginTop = '0';
+    card.appendChild(title);
+
+    if (meta) {
+      const p = document.createElement('p');
+      p.textContent = meta;
+      p.style.fontWeight = '700';
+      card.appendChild(p);
+    }
+
+    const note = document.createElement('p');
+    note.textContent = 'Preview only — nothing has been added to your timetable. Check what Daisy & Paws has recognised.';
+    card.appendChild(note);
+
+    Object.entries(result.byDay).forEach(([day, items]) => {
+      if (!items.length) return;
+      const h = document.createElement('h3');
+      h.textContent = day;
+      h.style.marginBottom = '6px';
+      card.appendChild(h);
+      const ul = document.createElement('ul');
+      ul.style.marginTop = '0';
+      items.forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    });
+
+    const buttons = document.createElement('div');
+    buttons.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:white;padding-top:14px';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Close preview';
+    close.onclick = () => overlay.remove();
+    buttons.appendChild(close);
+    card.appendChild(buttons);
+    overlay.appendChild(card);
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
+
+  async function analyse(file) {
+    if (typeof JSZip === 'undefined') {
+      alert('The Word document reader is not available. Nothing has been changed.');
       return;
     }
+    try {
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const entry = zip.file('word/document.xml');
+      if (!entry) throw new Error('No Word document XML found');
+      const xmlText = await entry.async('string');
+      const xml = new DOMParser().parseFromString(xmlText, 'application/xml');
+      const fullText = clean([...xml.getElementsByTagNameNS('*', 't')].map(n => n.textContent || '').join(' '));
+      const meta = parseMeta(fullText);
 
-    // --------------------------------------------------------
-    // Extract timetable sessions
-    // --------------------------------------------------------
+      const sectionStyle = parseDaySections(xml);
+      const columnStyle = parseTableColumns(xml);
+      const byDay = score(sectionStyle) >= score(columnStyle) ? sectionStyle : columnStyle;
 
-    const sessions = [];
-
-    function looksLikeTime(value) {
-      return /^\\s*\\d{1,2}[:.]\\d{2}\\s*(?:am|pm)?\\s*$/i.test(
-        String(value || '')
-      );
-    }
-
-    for (
-      let rowIndex = headerRowIndex + 1;
-      rowIndex < tableRows.length;
-      rowIndex++
-    ) {
-      const row = tableRows[rowIndex];
-
-      let time = '';
-
-      for (const cell of row) {
-        if (looksLikeTime(cell)) {
-          time = cell
-            .trim()
-            .replace('.', ':')
-            .replace(/\\s+/g, '');
-          break;
-        }
+      if (score(byDay) === 0) {
+        alert('Daisy & Paws opened the Word file but could not identify weekday sections. Nothing has been changed.');
+        return;
       }
 
-      Object.entries(dayColumns).forEach(([day, columnIndex]) => {
-        const value = String(row[columnIndex] || '').trim();
-
-        if (!value) return;
-
-        if (recogniseDay(value)) return;
-
-        sessions.push({
-          day,
-          time,
-          text: value
-        });
-      });
+      const result = { fileName: file.name, meta, byDay };
+      window.DP_LAST_TIMETABLE_IMPORT_PREVIEW = result;
+      makeModal(result);
+    } catch (error) {
+      console.error('Daisy & Paws timetable preview error:', error);
+      alert('Daisy & Paws could not read that timetable. Nothing has been changed.');
     }
-
-    if (!sessions.length) {
-      alert(
-        'Daisy & Paws recognised the timetable headings, but ' +
-        'could not identify any timetable sessions yet.\\n\\n' +
-        'Nothing has been changed.'
-      );
-      return;
-    }
-
-    // --------------------------------------------------------
-    // PREVIEW ONLY
-    // --------------------------------------------------------
-
-    const details = [];
-
-    if (detectedClass) {
-      details.push('Class ' + detectedClass);
-    }
-
-    if (detectedTerm) {
-      details.push('Term ' + detectedTerm);
-    }
-
-    if (detectedWeek) {
-      details.push('Week ' + detectedWeek);
-    }
-
-    const preview = sessions
-      .slice(0, 30)
-      .map(session => {
-        const when = session.time
-          ? session.day + ' ' + session.time
-          : session.day;
-
-        return when + ' — ' + session.text;
-      })
-      .join('\\n');
-
-    const more =
-      sessions.length > 30
-        ? '\\n\\n…and ' +
-          (sessions.length - 30) +
-          ' more timetable entries.'
-        : '';
-
-    alert(
-      'Timetable recognised 🌼\\n\\n' +
-      (details.length
-        ? details.join(' · ') + '\\n\\n'
-        : '') +
-      preview +
-      more +
-      '\\n\\nPREVIEW ONLY — nothing has been added to your timetable.'
-    );
-
-    // Keep the preview available for the next stage.
-    // We are deliberately NOT saving anything yet.
-    window.DP_LAST_TIMETABLE_IMPORT_PREVIEW = {
-      fileName: file.name,
-      className: detectedClass,
-      term: detectedTerm,
-      week: detectedWeek,
-      sessions
-    };
-
-  } catch (error) {
-    console.error('Timetable import error:', error);
-
-    alert(
-      'Daisy & Paws could not read that timetable.\\n\\n' +
-      'Nothing has been changed.'
-    );
   }
-}
 
+  function install() {
+    const grid = document.getElementById('timetableGrid');
+    if (!grid || document.getElementById('dpTimetableUploadBtn')) return;
 
-addTimetableUploadControls();
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap';
+    const button = document.createElement('button');
+    button.id = 'dpTimetableUploadBtn';
+    button.type = 'button';
+    button.textContent = '🌼 Upload timetable';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.docx';
+    input.hidden = true;
+
+    button.addEventListener('click', () => input.click());
+    input.addEventListener('change', async () => {
+      const file = input.files && input.files[0];
+      input.value = '';
+      if (!file) return;
+      if (!file.name.toLowerCase().endsWith('.docx')) {
+        alert('Please choose a Word (.docx) timetable for this test.');
+        return;
+      }
+      await analyse(file);
+    });
+
+    wrap.append(button, input);
+    const controls = grid.previousElementSibling;
+    if (controls && controls.classList.contains('ttControls')) controls.after(wrap);
+    else grid.parentNode.insertBefore(wrap, grid);
+  }
+
+  try {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install);
+    else install();
+  } catch (error) {
+    console.error('Daisy & Paws timetable importer did not start:', error);
+  }
 })();
