@@ -536,7 +536,7 @@
         ${dayCards}
       </div>
 
-      <div style="
+   <div style="
   margin-top:20px;
   color:#666;
   font-size:.92rem;
@@ -546,6 +546,29 @@
   timetable sections/entries.
 </div>
 
+<div style="
+  margin-top:22px;
+  display:flex;
+  justify-content:flex-end;
+  gap:12px;
+">
+  <button
+    type="button"
+    id="dpAddTimetableBtn"
+    style="
+      border:0;
+      border-radius:999px;
+      padding:14px 24px;
+      background:#b7c4a5;
+      color:white;
+      font-weight:700;
+      font-size:1rem;
+      cursor:pointer;
+    "
+  >
+    Add to my timetable 🌼
+  </button>
+</div>
 <div style="
   margin-top:18px;
   display:flex;
