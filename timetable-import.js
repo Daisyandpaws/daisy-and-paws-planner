@@ -596,7 +596,22 @@
 
     overlay.appendChild(card);
     document.body.appendChild(overlay);
+const addButton = card.querySelector("#dpAddTimetableBtn");
 
+if (addButton) {
+  addButton.addEventListener("click", () => {
+
+    console.log(
+      "Daisy & Paws timetable ready to import:",
+      grouped
+    );
+
+    alert(
+      "Your timetable has been checked and is ready to add 🌼"
+    );
+
+  });
+}
     const close = () => overlay.remove();
 
     card
