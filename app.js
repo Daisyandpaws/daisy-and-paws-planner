@@ -598,22 +598,103 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   }
 
   function editTimetableTimes() {
-    const answer = prompt(
-      'Enter your timetable row times, separated by commas.\n\nExample: 8:45, 9:00, 10:00, 10:45, 11:00, 12:00, 13:00, 13:30, 14:30',
-      times.join(', ')
-    );
-    if (answer === null) return;
+    document.getElementById('dpTimesEditor')?.remove();
 
-    const nextTimes = answer.split(',').map(normaliseTime).filter(Boolean);
-    const uniqueTimes = [...new Set(nextTimes)];
-    if (!uniqueTimes.length) {
-      alert('Please enter at least one valid time, for example 8:45 or 13:30.');
-      return;
+    const overlay = document.createElement('div');
+    overlay.id = 'dpTimesEditor';
+    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;`;
+
+    const panel = document.createElement('div');
+    panel.style.cssText = `width:min(520px,100%);max-height:85vh;overflow:auto;background:#fffdf8;border:1px solid #ded5c8;border-radius:24px;padding:24px;box-shadow:0 18px 55px rgba(0,0,0,.2);font-family:inherit;`;
+    panel.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:8px;">
+        <h2 style="margin:0;font-size:1.45rem;">Edit timetable times 🌼</h2>
+        <button type="button" id="dpTimesClose" aria-label="Close" style="border:0;background:#f3f1ed;border-radius:999px;padding:9px 13px;cursor:pointer;font-size:1rem;">×</button>
+      </div>
+      <p style="margin:0 0 18px;color:#666;line-height:1.45;">Set the row times used by your timetable. Add or remove rows, then save when you are happy.</p>
+      <div id="dpTimesRows" style="display:grid;gap:10px;"></div>
+      <button type="button" id="dpAddTime" style="margin-top:14px;border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:10px 16px;cursor:pointer;font:inherit;">+ Add time</button>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px;">
+        <button type="button" id="dpCancelTimes" style="border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:11px 18px;cursor:pointer;font:inherit;">Cancel</button>
+        <button type="button" id="dpSaveTimes" style="border:0;background:#b7c4a5;color:white;border-radius:999px;padding:11px 20px;cursor:pointer;font:inherit;font-weight:700;">Save times 🌼</button>
+      </div>`;
+
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    const rows = panel.querySelector('#dpTimesRows');
+
+    function addRow(value = '') {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;';
+
+      const input = document.createElement('input');
+      input.type = 'time';
+      input.value = normaliseTime(value) || '';
+      input.setAttribute('aria-label', 'Timetable row time');
+      input.style.cssText = 'width:100%;box-sizing:border-box;border:1px solid #d8cfc2;border-radius:12px;padding:11px 12px;font:inherit;background:white;';
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = 'Remove';
+      remove.style.cssText = 'border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:9px 13px;cursor:pointer;font:inherit;';
+      remove.addEventListener('click', () => row.remove());
+
+      row.append(input, remove);
+      rows.appendChild(row);
     }
 
-    times = uniqueTimes;
-    writeJSON(timesStorageKey, times);
-    renderTimetable();
+    times.forEach(addRow);
+
+    const close = () => overlay.remove();
+    panel.querySelector('#dpTimesClose').addEventListener('click', close);
+    panel.querySelector('#dpCancelTimes').addEventListener('click', close);
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) close();
+    });
+    panel.querySelector('#dpAddTime').addEventListener('click', () => addRow(''));
+
+    panel.querySelector('#dpSaveTimes').addEventListener('click', () => {
+      const nextTimes = [...rows.querySelectorAll('input[type="time"]')]
+        .map(input => normaliseTime(input.value))
+        .filter(Boolean);
+      const uniqueTimes = [...new Set(nextTimes)];
+
+      if (!uniqueTimes.length) {
+        alert('Please keep at least one timetable time.');
+        return;
+      }
+
+      // Preserve lesson content when a time is changed by remapping rows by position.
+      const oldTimes = [...times];
+      const stores = [
+        { key: defaultStorageKey, value: readJSON(defaultStorageKey) },
+        { key: weekStorageKey(selectedWeek), value: readJSON(weekStorageKey(selectedWeek)) }
+      ];
+
+      stores.forEach(store => {
+        const source = store.value;
+        const remapped = { ...source };
+        days.forEach(day => {
+          oldTimes.forEach(oldTime => delete remapped[day + '-' + oldTime]);
+          uniqueTimes.forEach((newTime, index) => {
+            const oldTime = oldTimes[index];
+            if (!oldTime) return;
+            const value = source[day + '-' + oldTime];
+            if (value !== undefined && value !== '') remapped[day + '-' + newTime] = value;
+          });
+        });
+        writeJSON(store.key, remapped);
+      });
+
+      times = uniqueTimes;
+      writeJSON(timesStorageKey, times);
+      defaultTimetable = readJSON(defaultStorageKey);
+      if (mode === 'default') timetable = { ...defaultTimetable };
+      else loadSelectedWeek();
+      close();
+      renderTimetable();
+    });
   }
 
   function loadSelectedWeek() {
