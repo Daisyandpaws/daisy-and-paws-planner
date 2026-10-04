@@ -365,33 +365,38 @@ if (yearMatch) {
 
 let subject = 'Not detected';
 
-const subjects = [
-  ['English', /\bEnglish\b/i],
-  ['Maths', /\b(?:Maths|Mathematics)\b/i],
-  ['Science', /\bScience\b/i],
-  ['History', /\bHistory\b/i],
-  ['Geography', /\bGeography\b/i],
-  ['Computing', /\bComputing\b/i],
-  ['Art', /\bArt\b/i],
-  ['Music', /\bMusic\b/i],
-  ['PE', /\b(?:PE|Physical Education)\b/i],
-  ['Design Technology', /\b(?:Design Technology|DT)\b/i]
+// Score subject clues instead of accepting the first subject word found.
+// This matters because a Science plan can legitimately contain words such as
+// reading/writing/English without actually being an English plan.
+const subjectScores = [
+  ['Science', [
+    [/\bscience\b|\bworking scientifically\b/i, 10],
+    [/\bliving things?\b|\bhabitats?\b|\bmicrohabitats?\b/i, 9],
+    [/\banimals?\b|\bplants?\b|\bhumans?\b|\boffspring\b/i, 5],
+    [/\bfish\b|\bamphibians?\b|\breptiles?\b|\bbirds?\b|\bmammals?\b/i, 6],
+    [/\bmaterials?\b|\bforces?\b|\bfood chains?\b|\benvironment\b/i, 4]
+  ]],
+  ['Maths', [[/\bmaths\b|\bmathematics\b|\bwhite rose\b/i, 10], [/\bnumber\b|\bplace value\b|\baddition\b|\bsubtraction\b|\bmultiplication\b|\bdivision\b/i, 3]]],
+  ['English', [[/\benglish\b|\bliteracy\b/i, 10], [/\bphonics\b|\bgrammar\b|\bgenre\b|\bclass book\b/i, 5], [/\bwriting\b|\breading\b/i, 2]]],
+  ['History', [[/\bhistory\b/i, 10]]],
+  ['Geography', [[/\bgeography\b/i, 10]]],
+  ['Computing', [[/\bcomputing\b|\bict\b/i, 10]]],
+  ['Art', [[/\bart\b/i, 10]]],
+  ['Music', [[/\bmusic\b/i, 10]]],
+  ['PE', [[/\bphysical education\b|\bp\.?e\.?\b/i, 10]]],
+  ['Design Technology', [[/\bdesign (?:&|and) technology\b|\bdesign technology\b|\bd\.?t\.?\b/i, 10]]],
+  ['RE', [[/\breligious education\b|\br\.?e\.?\b/i, 10]]],
+  ['PSHE', [[/\bpshe\b/i, 10]]]
 ];
 
-for (const [name, pattern] of subjects) {
-  if (pattern.test(cleanText)) {
+let bestSubjectScore = 0;
+for (const [name, clues] of subjectScores) {
+  let score = 0;
+  for (const [pattern, weight] of clues) if (pattern.test(cleanText)) score += weight;
+  if (score > bestSubjectScore) {
+    bestSubjectScore = score;
     subject = name;
-    break;
   }
-}
-
-// Extra check for documents whose subject is obvious
-// from common planning terminology
-if (
-  subject === 'Not detected' &&
-  /\b(?:writing|reading|grammar|phonics|genre|class book)\b/i.test(cleanText)
-) {
-  subject = 'English';
 }
 
 
@@ -1425,8 +1430,15 @@ window.addEventListener('dp-import-timetable', event => {
     const words={one:1,two:2,three:3,four:4,five:5,six:6};
     const ym=s.match(/\byear\s*(?:group\s*)?[:\-]?\s*(one|two|three|four|five|six|[1-6])\b/i);
     const year=ym?'Year '+(words[ym[1].toLowerCase()]||ym[1]):'';
-    const defs=[['Maths',/\b(?:maths|mathematics|white rose)\b/i],['English',/\b(?:english|literacy|writing|reading|phonics|grammar)\b/i],['Science',/\bscience\b|working scientifically/i],['Geography',/\bgeography\b/i],['History',/\bhistory\b/i],['RE',/\b(?:religious education|r\.e\.)\b/i],['PSHE',/\bpshe\b/i],['Computing',/\b(?:computing|ict)\b/i],['Music',/\bmusic\b/i],['PE',/\b(?:physical education|p\.e\.)\b/i],['Art',/\bart\b/i],['DT',/\b(?:design (?:&|and)? ?technology|d\.t\.)\b/i]];
-    let subject=''; for(const [n,r] of defs){if(r.test(s)){subject=n;break}}
+    // Weighted subject recognition: strong curriculum/topic clues beat incidental words.
+    const defs=[
+      ['Science',[[/\bscience\b|working scientifically/i,10],[/\bliving things?\b|\bhabitats?\b|\bmicrohabitats?\b/i,9],[/\banimals?\b|\bplants?\b|\bhumans?\b|\boffspring\b/i,5],[/\bfish\b|\bamphibians?\b|\breptiles?\b|\bbirds?\b|\bmammals?\b/i,6],[/\bmaterials?\b|\bforces?\b|\bfood chains?\b|\benvironment\b/i,4]]],
+      ['Maths',[[/\b(?:maths|mathematics|white rose)\b/i,10],[/\bnumber\b|\bplace value\b|\baddition\b|\bsubtraction\b|\bmultiplication\b|\bdivision\b/i,3]]],
+      ['English',[[/\b(?:english|literacy)\b/i,10],[/\b(?:phonics|grammar|genre|class book)\b/i,5],[/\b(?:writing|reading)\b/i,2]]],
+      ['Geography',[[/\bgeography\b/i,10]]],['History',[[/\bhistory\b/i,10]]],['RE',[[/\b(?:religious education|r\.?e\.?)\b/i,10]]],['PSHE',[[/\bpshe\b/i,10]]],['Computing',[[/\b(?:computing|ict)\b/i,10]]],['Music',[[/\bmusic\b/i,10]]],['PE',[[/\b(?:physical education|p\.?e\.?)\b/i,10]]],['Art',[[/\bart\b/i,10]]],['DT',[[/\b(?:design (?:&|and)? ?technology|d\.?t\.?)\b/i,10]]]
+    ];
+    let subject='', best=0;
+    for(const [n,clues] of defs){let score=0;for(const [r,w] of clues)if(r.test(s))score+=w;if(score>best){best=score;subject=n}}
     const weekdays=['monday','tuesday','wednesday','thursday','friday'].filter(d=>l.includes(d)).length;
     let type='Other planning';
     if(/\b(?:termly overview|term overview|curriculum overview|medium[ -]?term|long[ -]?term)\b/i.test(s)||(/\bweek\s*1\b/i.test(s)&&/\bweek\s*[4-9]\b/i.test(s))) type='Termly overview';
