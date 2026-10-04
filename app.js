@@ -494,7 +494,9 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   if (!grid) return;
 
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  const times = ['8:45', '9:00', '10:00', '10:45', '11:00', '12:00', '13:00', '13:30', '14:30'];
+  const defaultTimes = ['8:45', '9:00', '10:00', '10:45', '11:00', '12:00', '13:00', '13:30', '14:30'];
+  const timesStorageKey = 'daisyPawsTimetableTimes';
+  let times = [];
 
   // Keep the existing key so nobody loses the timetable they already entered.
   const defaultStorageKey = 'daisyPawsMasterTimetable';
@@ -536,6 +538,9 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
     end.setDate(end.getDate() + 4);
     return `${start.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${end.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
   }
+
+  times = readJSON(timesStorageKey);
+  if (!Array.isArray(times) || !times.length) times = [...defaultTimes];
 
   let mode = 'week';
   let selectedWeek = mondayOf(new Date());
@@ -579,8 +584,37 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   copyPreviousBtn.type = 'button';
   copyPreviousBtn.textContent = 'Copy previous week';
 
-  controls.append(defaultBtn, weekBtn, prevBtn, label, nextBtn, copyDefaultBtn, copyPreviousBtn);
+  const editTimesBtn = document.createElement('button');
+  editTimesBtn.type = 'button';
+  editTimesBtn.textContent = 'Edit times';
+
+  controls.append(defaultBtn, weekBtn, prevBtn, label, nextBtn, copyDefaultBtn, copyPreviousBtn, editTimesBtn);
   grid.parentNode.insertBefore(controls, grid);
+
+  function normaliseTime(value) {
+    const match = String(value || '').trim().match(/^([0-1]?\d|2[0-3])[:.]([0-5]\d)$/);
+    if (!match) return null;
+    return `${Number(match[1])}:${match[2]}`;
+  }
+
+  function editTimetableTimes() {
+    const answer = prompt(
+      'Enter your timetable row times, separated by commas.\n\nExample: 8:45, 9:00, 10:00, 10:45, 11:00, 12:00, 13:00, 13:30, 14:30',
+      times.join(', ')
+    );
+    if (answer === null) return;
+
+    const nextTimes = answer.split(',').map(normaliseTime).filter(Boolean);
+    const uniqueTimes = [...new Set(nextTimes)];
+    if (!uniqueTimes.length) {
+      alert('Please enter at least one valid time, for example 8:45 or 13:30.');
+      return;
+    }
+
+    times = uniqueTimes;
+    writeJSON(timesStorageKey, times);
+    renderTimetable();
+  }
 
   function loadSelectedWeek() {
     timetable = readJSON(weekStorageKey(selectedWeek));
@@ -652,17 +686,7 @@ window.addEventListener('dp-import-timetable', event => {
 
     if (!imported || typeof imported !== 'object') return;
 
-    const slotTimes = [
-        '8:45',
-        '9:00',
-        '10:00',
-        '10:45',
-        '11:00',
-        '12:00',
-        '13:00',
-        '13:30',
-        '14:30'
-    ];
+    const slotTimes = [...times];
 
     const importedTimetable = {};
 
@@ -793,6 +817,8 @@ window.addEventListener('dp-import-timetable', event => {
     saveTimetable();
     renderTimetable();
   });
+
+  editTimesBtn.addEventListener('click', editTimetableTimes);
 
   copyPreviousBtn.addEventListener('click', () => {
     const previous = new Date(selectedWeek);
@@ -1019,11 +1045,20 @@ window.addEventListener('dp-import-timetable', event => {
 
     const buttons = document.createElement('div');
     buttons.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;position:sticky;bottom:0;background:white;padding-top:14px';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.textContent = 'Add to my timetable 🌼';
+    add.style.cssText = 'border:0;border-radius:999px;padding:14px 24px;background:#b7c4a5;color:white;font-weight:700;font-size:1rem;cursor:pointer';
+    add.onclick = () => {
+      window.dispatchEvent(new CustomEvent('dp-import-timetable', { detail: result.byDay }));
+      overlay.remove();
+    };
+
     const close = document.createElement('button');
     close.type = 'button';
     close.textContent = 'Close preview';
     close.onclick = () => overlay.remove();
-    buttons.appendChild(close);
+    buttons.append(add, close);
     card.appendChild(buttons);
     overlay.appendChild(card);
     overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
@@ -1064,18 +1099,40 @@ window.addEventListener('dp-import-timetable', event => {
 
   function install() {
     const grid = document.getElementById('timetableGrid');
-    if (!grid || document.getElementById('dpTimetableUploadBtn')) return;
+    if (!grid) return;
 
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap';
-    const button = document.createElement('button');
+    // Reuse the page's existing Upload timetable button when there is one.
+    // This prevents Daisy & Paws from showing a duplicate upload button.
+    let button = document.getElementById('dpTimetableUploadBtn');
+    if (!button) {
+      button = [...document.querySelectorAll('button')].find(btn =>
+        btn.textContent.toLowerCase().includes('upload timetable')
+      );
+    }
+
+    let wrap = null;
+    if (!button) {
+      wrap = document.createElement('div');
+      wrap.style.cssText = 'display:flex;gap:8px;align-items:center;margin:0 0 14px;flex-wrap:wrap';
+      button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = '🌼 Upload timetable';
+      wrap.appendChild(button);
+      const controls = grid.previousElementSibling;
+      if (controls && controls.classList.contains('ttControls')) controls.after(wrap);
+      else grid.parentNode.insertBefore(wrap, grid);
+    }
+
     button.id = 'dpTimetableUploadBtn';
-    button.type = 'button';
-    button.textContent = '🌼 Upload timetable';
+    if (button.dataset.dpTimetableImporterReady === '1') return;
+    button.dataset.dpTimetableImporterReady = '1';
+
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.docx';
     input.hidden = true;
+    input.id = 'dpTimetableUploadInput';
+    (wrap || button.parentNode || document.body).appendChild(input);
 
     button.addEventListener('click', () => input.click());
     input.addEventListener('change', async () => {
@@ -1083,16 +1140,11 @@ window.addEventListener('dp-import-timetable', event => {
       input.value = '';
       if (!file) return;
       if (!file.name.toLowerCase().endsWith('.docx')) {
-        alert('Please choose a Word (.docx) timetable for this test.');
+        alert('Please choose a Word (.docx) timetable.');
         return;
       }
       await analyse(file);
     });
-
-    wrap.append(button, input);
-    const controls = grid.previousElementSibling;
-    if (controls && controls.classList.contains('ttControls')) controls.after(wrap);
-    else grid.parentNode.insertBefore(wrap, grid);
   }
 
   try {
