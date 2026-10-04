@@ -1464,6 +1464,26 @@ window.addEventListener('dp-import-timetable', event => {
   }
 
   function loadScript(src,test){return new Promise((res,rej)=>{if(test())return res();const x=document.createElement('script');x.src=src;x.onload=res;x.onerror=rej;document.head.appendChild(x)})}
+  function dpFixPlanningSpacing(value){
+    let s=String(value||'').replace(/\r/g,'\n');
+    s=s.replace(/([.!?])(?=[A-Z])/g,'$1 ');
+    s=s.replace(/([a-z])(?=(?:pattern\s+seeking|observing\s+closely|asking\s+questions|classifying|sorting\s+and\s+grouping)\b)/gi,'$1 ');
+    s=s.replace(/\bcloselypattern\b/gi,'closely; pattern');
+    s=s.replace(/\blitter\.Recap\b/gi,'litter. Recap');
+    s=s.replace(/\bsheets\.Activity\b/gi,'sheets. Activity');
+    s=s.replace(/\banimalsRussell\b/gi,'animals. Russell');
+    s=s.replace(/[ \t]+\n/g,'\n').replace(/\n[ \t]+/g,'\n');
+    return clean(s);
+  }
+
+  function dpCleanLessonTitle(value, number){
+    let s=dpFixPlanningSpacing(value);
+    if(number!=null)s=s.replace(new RegExp('^(?:L|Lesson)\\s*'+number+'\\s*[:|\\-–—]?\\s*','i'),'');
+    // In this school format the title is followed by Mind map/Recap etc. Other schools simply keep their full short title.
+    s=s.split(/\b(?:Mind\s*map|Recap|Big\s+question|Activity|Provision)\s*:/i)[0];
+    return clean(s).replace(/[|:;,.\-–—]+$/,'').trim();
+  }
+
   async function readFile(file){
     const n=file.name.toLowerCase();
     if(n.endsWith('.docx')){
@@ -1471,13 +1491,14 @@ window.addEventListener('dp-import-timetable', event => {
       const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
       const d=document.createElement('div'); d.innerHTML=r.value;
       const structured={lessons:[],sections:[]};
-      const norm=s=>clean(String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2'));
+      const norm=s=>dpFixPlanningSpacing(String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2'));
       d.querySelectorAll('table').forEach(table=>{
         const rows=[...table.querySelectorAll('tr')];
         let headers=[]; let current=null;
         const finish=()=>{if(current){
-          Object.keys(current.sections).forEach(k=>current.sections[k]=clean(current.sections[k]));
-          current.raw=clean(Object.entries(current.sections).map(([k,v])=>v?k+': '+v:'').filter(Boolean).join('\n'));
+          Object.keys(current.sections).forEach(k=>current.sections[k]=dpFixPlanningSpacing(current.sections[k]));
+          current.title=dpCleanLessonTitle(current.title,current.number);
+          current.raw=dpFixPlanningSpacing(Object.entries(current.sections).map(([k,v])=>v?k+': '+v:'').filter(Boolean).join('\n'));
           structured.lessons.push(current); current=null;
         }};
         rows.forEach(row=>{
@@ -1496,7 +1517,7 @@ window.addEventListener('dp-import-timetable', event => {
             if(!v && /lesson/i.test(val))return;
             current.sections[label]=(current.sections[label]?current.sections[label]+'\n':'')+v;
             const titleMatch=val.match(new RegExp('(?:^|\\s)L'+current.number+'\\s+([^\\n|]{3,100})','i'));
-            if(titleMatch&&!current.title)current.title=norm(titleMatch[1]);
+            if(titleMatch&&!current.title)current.title=dpCleanLessonTitle(titleMatch[1],current.number);
           });
         }); finish();
         const summary=structured.lessons.map(L=>{
@@ -1589,8 +1610,8 @@ window.addEventListener('dp-import-timetable', event => {
   }
 
   function parseLessonFields(text){
-    const src=String(text||'').replace(/\r/g,'\n');
-    const lines=src.split('\n').map(clean).filter(Boolean).filter(x=>!/^===\s*Lesson/i.test(x));
+    const src=dpFixPlanningSpacing(String(text||'').replace(/\r/g,'\n'));
+    const lines=src.split('\n').map(dpFixPlanningSpacing).filter(Boolean).filter(x=>!/^===\s*Lesson/i.test(x));
     const fields={title:'',objective:'',teaching:'',resources:'',assessment:'',vocab:'',other:[]};
     const add=(key,val)=>{val=clean(val);if(!val)return;fields[key]=fields[key]?fields[key]+'\n'+val:val};
     lines.forEach(line=>{
@@ -1607,7 +1628,7 @@ window.addEventListener('dp-import-timetable', event => {
     // Lesson title is usually the first short L4/Lesson 4 line in teaching notes.
     const candidates=(fields.teaching+'\n'+fields.other.join('\n')).split('\n').map(clean).filter(Boolean);
     const titleLine=candidates.find(x=>/^(?:L|Lesson)\s*\d+\b/i.test(x));
-    if(titleLine)fields.title=clean(titleLine.replace(/^(?:L|Lesson)\s*\d+\s*[:|\-–—]?\s*/i,''));
+    if(titleLine){ const nm=(titleLine.match(/^(?:L|Lesson)\s*(\d+)/i)||[])[1]; fields.title=dpCleanLessonTitle(titleLine,nm?Number(nm):null); }
     return fields;
   }
 
@@ -1620,7 +1641,7 @@ window.addEventListener('dp-import-timetable', event => {
 
   function structuredLesson(text, fallbackTitle){
     const f=parseLessonFields(text);
-    return {title:f.title||fallbackTitle||'',objective:f.objective||f.title||fallbackTitle||'',success:'',vocab:f.vocab,resources:f.resources,next:f.assessment,teaching:f.teaching||f.other.join('\n')};
+    return {title:dpCleanLessonTitle(f.title||fallbackTitle||'',null),objective:dpFixPlanningSpacing(f.objective||f.title||fallbackTitle||''),success:'',vocab:dpFixPlanningSpacing(f.vocab),resources:dpFixPlanningSpacing(f.resources),next:dpFixPlanningSpacing(f.assessment),teaching:dpFixPlanningSpacing(f.teaching||f.other.join('\n'))};
   }
 
   function lessonPreviewHtml(chunk){
@@ -1645,9 +1666,9 @@ window.addEventListener('dp-import-timetable', event => {
   function chunksForItem(item){
     if(Array.isArray(item.lessons)&&item.lessons.length){
       return item.lessons.map(L=>{
-        const fields={title:clean(L.title||''),objective:'',teaching:'',resources:'',assessment:'',vocab:'',other:[]};
+        const fields={title:dpCleanLessonTitle(L.title||'',L.number),objective:'',teaching:'',resources:'',assessment:'',vocab:'',other:[]};
         Object.entries(L.sections||{}).forEach(([label,val])=>{
-          const k=label.toLowerCase(), v=clean(val); if(!v)return;
+          const k=label.toLowerCase(), v=dpFixPlanningSpacing(val); if(!v)return;
           if(/objective|scientific|skill/.test(k))fields.objective+=(fields.objective?'\n':'')+v;
           else if(/teaching|activity|lesson content|notes/.test(k))fields.teaching+=(fields.teaching?'\n':'')+v;
           else if(/resource|equipment/.test(k))fields.resources+=(fields.resources?'\n':'')+v;
@@ -1655,7 +1676,7 @@ window.addEventListener('dp-import-timetable', event => {
           else if(/vocab|key words?/.test(k))fields.vocab+=(fields.vocab?'\n':'')+v;
           else fields.other.push(label+': '+v);
         });
-        if(!fields.title){const hay=(fields.teaching+'\n'+fields.other.join('\n'));const m=hay.match(new RegExp('(?:^|\\n)\\s*L'+L.number+'\\s+([^\\n]{3,100})','i'));if(m)fields.title=clean(m[1]);}
+        if(!fields.title){const hay=(fields.teaching+'\n'+fields.other.join('\n'));const m=hay.match(new RegExp('(?:^|\\n)\\s*L'+L.number+'\\s+([^\\n]{3,100})','i'));if(m)fields.title=dpCleanLessonTitle(m[1],L.number);}
         const text=clean(Object.entries(L.sections||{}).map(([k,v])=>k+': '+v).join('\n'));
         return {number:Number(L.number),title:fields.title,text,fields};
       });
@@ -1672,9 +1693,9 @@ window.addEventListener('dp-import-timetable', event => {
     const chunks=chunksForItem(item);
     const matches=slots.map(slot=>{let best=null,bestScore=-1;chunks.forEach(c=>{const sc=scoreChunk(c,slot,subject);if(sc>bestScore){best=c;bestScore=sc}});return {slot,chunk:bestScore>0?best:null,score:bestScore}});
     const ov=document.createElement('div');ov.id='dpLessonPreviewModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100001;display:flex;align-items:center;justify-content:center;padding:18px';
-    ov.innerHTML=`<div style="width:min(900px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:360px;overflow:auto;line-height:1.45">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
+    ov.innerHTML=`<div style="width:min(900px,96vw);height:min(860px,92vh);overflow:hidden;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px;overflow:auto;padding-right:4px;min-height:0">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:430px;overflow:auto;line-height:1.55">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
     document.body.appendChild(ov); ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()};
-    ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const f=m.chunk.fields||parseLessonFields(m.chunk.text);const data={title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,objective:f.objective||f.title||lessonTitleFromLabel(m.slot.label,subject)||subject,success:'',vocab:f.vocab||'',resources:f.resources||'',next:f.assessment||'',teaching:f.teaching||f.other?.join('\n')||''};const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
+    ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const f=m.chunk.fields||parseLessonFields(m.chunk.text);const data={title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,objective:f.objective||f.title||lessonTitleFromLabel(m.slot.label,subject)||subject,success:'',vocab:f.vocab||'',resources:f.resources||'',next:f.assessment||'',teaching:f.teaching||f.other?.join('\n')||''};const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);set('lesson-teaching',data.teaching);set('lesson-notes',data.teaching);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
   }
 
   function install(){
