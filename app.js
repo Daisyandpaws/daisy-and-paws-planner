@@ -2062,3 +2062,71 @@ window.addEventListener('dp-import-timetable', event => {
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();
+
+// ============================================================
+// DAISY & PAWS — V2.9.9 CLEAN PLANNING RESET
+// Clears only timetable/planning test data so imports can be rebuilt cleanly.
+// Leaves classes, pupils, tasks, notes and all unrelated app data untouched.
+// ============================================================
+(() => {
+  'use strict';
+  const userPrefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':';
+  const exactGlobal=new Set([
+    'daisyPawsMasterTimetable',
+    'daisyPawsTimetableTimes',
+    'dp3:last-imported-timetable-context',
+    'dp3:planningLibrary:v1',
+    'dp3:planningLibrary:v2',
+    'dp3:planningSubjectMappings:v1'
+  ]);
+  const globalPrefixes=['daisyPawsWeeklyTimetable:'];
+  const scopedExact=new Set([
+    'planningImportRaw',
+    'planningImportType',
+    'dp3:last-imported-timetable-context'
+  ]);
+  const scopedPrefixes=['week:','linked-lessons:','daily-linked:'];
+
+  function planningKeys(){
+    const keys=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i); if(!key) continue;
+      if(exactGlobal.has(key)||globalPrefixes.some(p=>key.startsWith(p))){keys.push(key);continue;}
+      if(key.startsWith(userPrefix)){
+        const inner=key.slice(userPrefix.length);
+        if(scopedExact.has(inner)||scopedPrefixes.some(p=>inner.startsWith(p)))keys.push(key);
+      }
+    }
+    return [...new Set(keys)];
+  }
+
+  function clearPlanningData(){
+    const keys=planningKeys();
+    keys.forEach(k=>localStorage.removeItem(k));
+    return keys.length;
+  }
+
+  function mountReset(){
+    if(document.getElementById('dpResetPlanningData')) return;
+    const preview=document.querySelector('#planningPreview');
+    const anchor=document.querySelector('#dpSmartLibrary')||document.querySelector('#dpPlanningLibrary')||preview;
+    if(!anchor) return;
+    const box=document.createElement('div');
+    box.id='dpResetPlanningData';
+    box.style.cssText='margin-top:18px;padding:16px 18px;border:1px solid #ead8d0;border-radius:18px;background:#fffaf7;display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap';
+    box.innerHTML='<div><div style="font-weight:800;color:#493f39">Start planning again 🌼</div><div style="margin-top:4px;color:#756c65;font-size:.93rem;max-width:680px">Clear imported timetables, saved planning, subject links and generated Weekly Planning entries. Classes, pupils, tasks and other Daisy & Paws data are kept.</div></div><button type="button" data-reset-planning style="border:1px solid #d7b8aa;background:white;color:#875f50;border-radius:999px;padding:10px 15px;font-weight:800;cursor:pointer">Reset Planning Data</button>';
+    anchor.insertAdjacentElement('afterend',box);
+    box.querySelector('[data-reset-planning]').onclick=()=>{
+      const ok=confirm('Reset Daisy & Paws planning data?\n\nThis will remove imported timetables, Planning Library records, subject mappings, linked lessons and Weekly Planning entries created during these tests.\n\nYour classes, pupils, tasks and unrelated data will NOT be deleted.');
+      if(!ok)return;
+      const sure=confirm('Yes, clear planning data and start again from scratch?');
+      if(!sure)return;
+      const count=clearPlanningData();
+      alert('Planning data cleared 🌼\n\n'+count+' saved planning/timetable records were removed. Daisy & Paws will now reload with a clean planning area.');
+      location.reload();
+    };
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(mountReset,0));
+  else setTimeout(mountReset,0);
+})();
