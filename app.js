@@ -1477,6 +1477,44 @@ window.addEventListener('dp-import-timetable', event => {
     document.body.appendChild(ov); q('[data-m="type"]',ov); ov.querySelector('[data-m="type"]').value=meta.type; ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()}; ov.querySelector('[data-save]').onclick=()=>{const m={...meta};ov.querySelectorAll('[data-m]').forEach(x=>m[x.dataset.m]=clean(x.value));onSave(m);ov.remove()};
   }
 
+  const MAP_KEY='dp3:planningSubjectMappings:v1';
+  const readMappings=()=>{try{return JSON.parse(localStorage.getItem(MAP_KEY)||'{}')||{}}catch{return{}}};
+  const writeMappings=m=>localStorage.setItem(MAP_KEY,JSON.stringify(m));
+
+  function allTimetableSlots(){
+    if(typeof window.DP_GET_WEEKLY_TIMETABLE!=='function') return [];
+    const map=window.DP_GET_WEEKLY_TIMETABLE()||{};
+    const order=['Monday','Tuesday','Wednesday','Thursday','Friday'];
+    const out=[];
+    order.forEach(day=>(map[day]||[]).forEach(slot=>out.push({day:slot.day||day,time:slot.time||'',label:slot.subject||''})));
+    return out;
+  }
+
+  function mappingModal(item){
+    q('#dpSubjectMapModal')?.remove();
+    const subject=clean(item.subject)||'This subject';
+    const slots=allTimetableSlots();
+    if(!slots.length){alert('Daisy & Paws cannot see any lessons in the currently displayed timetable yet. Add or copy your timetable first, then try again. Nothing has been changed.');return}
+    const mappings=readMappings();
+    const saved=Array.isArray(mappings[subject])?mappings[subject]:[];
+    const savedKeys=new Set(saved.map(x=>x.day+'|'+x.time));
+    const exact=typeof window.DP_FIND_SUBJECT_SLOTS==='function'?window.DP_FIND_SUBJECT_SLOTS(subject):[];
+    const suggested=new Set((exact||[]).map(x=>x.day+'|'+x.time));
+    const ov=document.createElement('div');ov.id='dpSubjectMapModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100000;display:flex;align-items:center;justify-content:center;padding:18px;';
+    ov.innerHTML=`<div style="width:min(820px,96vw);max-height:90vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">TIMETABLE LINK</div><h2 style="margin:6px 0 4px;font-size:2rem">Where is ${esc(subject)} taught? 🌼</h2><p style="margin:0;color:#6d6861">Choose every timetable slot that can be used for ${esc(subject)}. Daisy & Paws will remember this for future planning. Nothing is added to Daily Planning yet.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px;flex:0 0 auto">×</button></div><div style="margin-top:20px;display:grid;gap:9px">${slots.map((slot,i)=>{const k=slot.day+'|'+slot.time;const checked=savedKeys.has(k)||(!saved.length&&suggested.has(k));return `<label style="display:grid;grid-template-columns:auto 110px 90px 1fr;gap:12px;align-items:center;padding:12px 14px;border:1px solid #e5dccf;border-radius:16px;background:white"><input type="checkbox" data-slot="${i}" ${checked?'checked':''}><b>${esc(slot.day)}</b><span>${esc(slot.time)}</span><span>${esc(slot.label)}</span></label>`}).join('')}</div><div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:22px;flex-wrap:wrap"><button data-clear style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Clear mapping</button><div style="display:flex;gap:10px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Cancel</button><button data-save-map style="padding:11px 18px;border:0;background:#b7c4a5;color:white;font-weight:800;border-radius:999px">Save timetable link 🌼</button></div></div></div>`;
+    document.body.appendChild(ov);
+    ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove());
+    ov.onclick=e=>{if(e.target===ov)ov.remove()};
+    ov.querySelector('[data-clear]').onclick=()=>ov.querySelectorAll('[data-slot]').forEach(c=>c.checked=false);
+    ov.querySelector('[data-save-map]').onclick=()=>{
+      const chosen=[...ov.querySelectorAll('[data-slot]:checked')].map(c=>slots[+c.dataset.slot]);
+      if(!chosen.length&&!confirm('Save with no '+subject+' timetable slots selected?'))return;
+      const next=readMappings();next[subject]=chosen;writeMappings(next);ov.remove();
+      alert(chosen.length?subject+' is now linked to '+chosen.length+' timetable slot'+(chosen.length===1?'':'s')+' 🌼\n\nDaisy & Paws will remember this mapping. No Daily Plan has been overwritten.':subject+' timetable mapping has been cleared.');
+      window.dispatchEvent(new Event('dp-planning-library-changed'));
+    };
+  }
+
   function install(){
     const input=q('#planningFile'), preview=q('#planningPreview'), host=q('#dpPlanningLibrary'); if(!input||!preview)return;
     input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
@@ -1486,7 +1524,7 @@ window.addEventListener('dp-import-timetable', event => {
     setTimeout(()=>{const b=q('#dpSavePlanning');if(b)b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const t=clean(preview.value);if(!t){alert('Choose a planning document first.');return}modal(analyse(t,input.files?.[0]?.name),t,input.files?.[0]?.name,saveConfirmed)},true)},50);
 
     // Add a compact smart-library view below the existing one.
-    if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{alert('This plan is safely stored and ready for the next Daily Planning link stage. No timetable or daily plan has been overwritten.')}}}
+    if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{mappingModal(item)}}}
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();
