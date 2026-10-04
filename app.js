@@ -1465,7 +1465,50 @@ window.addEventListener('dp-import-timetable', event => {
   function loadScript(src,test){return new Promise((res,rej)=>{if(test())return res();const x=document.createElement('script');x.src=src;x.onload=res;x.onerror=rej;document.head.appendChild(x)})}
   async function readFile(file){
     const n=file.name.toLowerCase();
-    if(n.endsWith('.docx')){if(!window.mammoth)throw Error('Word reader is not available.');const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});const d=document.createElement('div');d.innerHTML=r.value;d.querySelectorAll('tr').forEach(row=>{const cells=[...row.querySelectorAll('th,td')].map(c=>clean(c.innerText)).filter(Boolean);row.replaceWith(document.createTextNode('\n'+cells.join(' | ')+'\n'))});return clean(d.innerText)}
+    if(n.endsWith('.docx')){
+      if(!window.mammoth)throw Error('Word reader is not available.');
+      const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
+      const d=document.createElement('div');d.innerHTML=r.value;
+      // Preserve Word table structure instead of flattening every cell together.
+      // This is intentionally heading-driven so different schools can use different templates.
+      d.querySelectorAll('table').forEach(table=>{
+        const rows=[...table.querySelectorAll('tr')];
+        let headers=[];
+        const blocks=[];
+        rows.forEach((row,ri)=>{
+          const raw=[...row.querySelectorAll(':scope > th, :scope > td')].map(c=>clean(c.innerText));
+          if(!raw.some(Boolean))return;
+          const lower=raw.map(x=>x.toLowerCase());
+          const looksHeader=raw.some(x=>/^(objectives?|teaching notes?|resources?|equipment|activity|assessment|vocabulary)$/i.test(x));
+          if(looksHeader){headers=raw;blocks.push(raw.filter(Boolean).join(' | '));return;}
+          const lessonCell=raw.find(x=>/^lesson\s*\d+/i.test(x));
+          if(lessonCell){
+            const m=lessonCell.match(/^lesson\s*(\d+)/i);
+            const number=m?m[1]:'';
+            const parts=['=== Lesson '+number+' ==='];
+            const seen=new Set();
+            raw.forEach((val,i)=>{
+              if(!val)return;
+              const norm=val.toLowerCase().replace(/\s+/g,' ').trim();
+              if(seen.has(norm))return; seen.add(norm);
+              let label=(headers[i]||'').trim();
+              if(i===0&&!label)label='Objectives';
+              if(/^lesson\s*\d+/i.test(val)){
+                const rest=clean(val.replace(/^lesson\s*\d+\s*(?:\([^)]*\))?/i,''));
+                if(rest)parts.push((label||'Objectives')+': '+rest);
+              }else parts.push((label||('Section '+(i+1)))+': '+val);
+            });
+            blocks.push(parts.join('\n'));
+          }else{
+            const seen=new Set(), bits=[];
+            raw.forEach((val,i)=>{if(!val)return;const norm=val.toLowerCase().replace(/\s+/g,' ').trim();if(seen.has(norm))return;seen.add(norm);bits.push(headers[i]?headers[i]+': '+val:val)});
+            if(bits.length)blocks.push(bits.join('\n'));
+          }
+        });
+        table.replaceWith(document.createTextNode('\n'+blocks.join('\n\n')+'\n'));
+      });
+      return clean(d.innerText)
+    }
     if(n.endsWith('.pdf')){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>!!window.pdfjsLib);pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;let out='';for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p), c=await page.getTextContent();out+='\n'+c.items.map(x=>x.str).join(' ')}return clean(out)}
     if(/\.xlsx?$/.test(n)){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',()=>!!window.XLSX);const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});return clean(wb.SheetNames.map(sn=>'\n['+sn+']\n'+XLSX.utils.sheet_to_csv(wb.Sheets[sn])).join('\n'))}
     return clean(await file.text());
@@ -1512,15 +1555,6 @@ window.addEventListener('dp-import-timetable', event => {
       const next=readMappings();next[subject]=chosen;writeMappings(next);ov.remove();
       alert(chosen.length?subject+' is now linked to '+chosen.length+' timetable slot'+(chosen.length===1?'':'s')+' 🌼\n\nDaisy & Paws will remember this mapping. No Daily Plan has been overwritten.':subject+' timetable mapping has been cleared.');
       window.dispatchEvent(new Event('dp-planning-library-changed'));
-
-      // V2.4: once a subject has been linked successfully, continue straight
-      // to the lesson-matching preview. This keeps the timetable mapping
-      // step safe, but avoids making the teacher click “Use in planning”
-      // a second time before Daisy & Paws compares the slot label (for
-      // example “Science | L4: Microhabitats”) with the saved plan.
-      if(chosen.length){
-        setTimeout(()=>lessonPreviewModal(item),0);
-      }
     };
   }
 
@@ -1537,9 +1571,38 @@ window.addEventListener('dp-import-timetable', event => {
 
   function extractLessonChunks(text){
     const src=String(text||'').replace(/\r/g,'\n');
-    const hits=[...src.matchAll(/(?:^|\n|\|)\s*(?:lesson|l)\s*(\d{1,2})\s*(?:[|:\-–—]\s*)?([^\n|]{0,100})/gim)];
+    // New structured Word reader emits === Lesson N === markers. Keep support for older saved plans too.
+    let hits=[...src.matchAll(/(?:^|\n)\s*===\s*Lesson\s*(\d{1,2})\s*===\s*/gim)];
+    if(!hits.length)hits=[...src.matchAll(/(?:^|\n|\|)\s*(?:lesson|l)\s*(\d{1,2})\s*(?:[|:\-–—]\s*)?([^\n|]{0,100})/gim)];
     if(!hits.length)return [];
-    return hits.map((m,i)=>({number:Number(m[1]),title:clean(m[2]),text:clean(src.slice(m.index+(m[0].startsWith('\n')?1:0),i+1<hits.length?hits[i+1].index:src.length))}));
+    return hits.map((m,i)=>{
+      const raw=clean(src.slice(m.index+(m[0].startsWith('\n')?1:0),i+1<hits.length?hits[i+1].index:src.length));
+      const fields=parseLessonFields(raw);
+      return {number:Number(m[1]),title:fields.title||clean(m[2]||''),text:raw,fields};
+    });
+  }
+
+  function parseLessonFields(text){
+    const src=String(text||'').replace(/\r/g,'\n');
+    const lines=src.split('\n').map(clean).filter(Boolean).filter(x=>!/^===\s*Lesson/i.test(x));
+    const fields={title:'',objective:'',teaching:'',resources:'',assessment:'',vocab:'',other:[]};
+    const add=(key,val)=>{val=clean(val);if(!val)return;fields[key]=fields[key]?fields[key]+'\n'+val:val};
+    lines.forEach(line=>{
+      const m=line.match(/^([^:]{2,45}):\s*(.*)$/);
+      if(!m){fields.other.push(line);return}
+      const label=m[1].toLowerCase(), val=m[2];
+      if(/objective|scientific|skill/.test(label))add('objective',val);
+      else if(/teaching|activity|lesson content|notes/.test(label))add('teaching',val);
+      else if(/resource|equipment/.test(label))add('resources',val);
+      else if(/assessment|plenary|next step/.test(label))add('assessment',val);
+      else if(/vocab|key words?/.test(label))add('vocab',val);
+      else fields.other.push(line);
+    });
+    // Lesson title is usually the first short L4/Lesson 4 line in teaching notes.
+    const candidates=(fields.teaching+'\n'+fields.other.join('\n')).split('\n').map(clean).filter(Boolean);
+    const titleLine=candidates.find(x=>/^(?:L|Lesson)\s*\d+\b/i.test(x));
+    if(titleLine)fields.title=clean(titleLine.replace(/^(?:L|Lesson)\s*\d+\s*[:|\-–—]?\s*/i,''));
+    return fields;
   }
 
   function scoreChunk(chunk, slot, subject){
@@ -1550,9 +1613,20 @@ window.addEventListener('dp-import-timetable', event => {
   }
 
   function structuredLesson(text, fallbackTitle){
-    const src=String(text||'');
-    const take=(labels)=>{for(const label of labels){const re=new RegExp('(?:^|\\n|\\|)\\s*'+label+'\\s*[:|\\-]?\\s*([\\s\\S]*?)(?=(?:\\n|\\|)\\s*(?:learning objective|objective|lo|success criteria|steps to success|key vocabulary|vocabulary|resources|equipment|activity|teaching|assessment|plenary|lesson\\s*\\d+|l\\s*\\d+)\\s*[:|\\-]|$)','i');const m=src.match(re);if(m&&clean(m[1]))return clean(m[1])}return ''};
-    return {title:fallbackTitle||'',objective:take(['learning objective','objective','LO']),success:take(['success criteria','steps to success']),vocab:take(['key vocabulary','vocabulary']),resources:take(['resources','equipment']),next:take(['assessment','plenary'])};
+    const f=parseLessonFields(text);
+    return {title:f.title||fallbackTitle||'',objective:f.objective||f.title||fallbackTitle||'',success:'',vocab:f.vocab,resources:f.resources,next:f.assessment,teaching:f.teaching||f.other.join('\n')};
+  }
+
+  function lessonPreviewHtml(chunk){
+    const f=chunk.fields||parseLessonFields(chunk.text);
+    const rows=[];
+    if(f.title)rows.push('<div><b>Lesson focus:</b> '+esc(f.title)+'</div>');
+    if(f.objective)rows.push('<div><b>Objective / scientific skill:</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(f.objective)+'</div></div>');
+    if(f.teaching)rows.push('<div><b>Teaching notes:</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(f.teaching)+'</div></div>');
+    if(f.resources)rows.push('<div><b>Resources:</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(f.resources)+'</div></div>');
+    if(f.assessment)rows.push('<div><b>Assessment / next step:</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(f.assessment)+'</div></div>');
+    if(!rows.length)rows.push('<div style="white-space:pre-wrap">'+esc(chunk.text.slice(0,2200))+'</div>');
+    return rows.join('<div style="height:10px"></div>');
   }
 
   function dateForMappedSlot(slot){
@@ -1571,7 +1645,7 @@ window.addEventListener('dp-import-timetable', event => {
     const chunks=extractLessonChunks(item.text);
     const matches=slots.map(slot=>{let best=null,bestScore=-1;chunks.forEach(c=>{const sc=scoreChunk(c,slot,subject);if(sc>bestScore){best=c;bestScore=sc}});return {slot,chunk:bestScore>0?best:null,score:bestScore}});
     const ov=document.createElement('div');ov.id='dpLessonPreviewModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100001;display:flex;align-items:center;justify-content:center;padding:18px';
-    ov.innerHTML=`<div style="width:min(900px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:12px;border-radius:12px;background:#f7f3ec;white-space:pre-wrap;max-height:180px;overflow:auto">${esc(m.chunk.text.slice(0,1800))}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
+    ov.innerHTML=`<div style="width:min(900px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:360px;overflow:auto;line-height:1.45">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
     document.body.appendChild(ov); ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()};
     ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const data=structuredLesson(m.chunk.text,lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject);const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
   }
