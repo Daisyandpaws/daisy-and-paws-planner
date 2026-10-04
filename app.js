@@ -1404,3 +1404,77 @@ window.addEventListener('dp-import-timetable', event => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
 })();
+
+// ============================================================
+// DAISY & PAWS — INTELLIGENT PLANNING IMPORTER V2
+// Adds confirmation, flexible school formats, PDF/XLSX reading,
+// richer library metadata and timetable-aware weekly placement.
+// ============================================================
+(() => {
+  'use strict';
+  const KEY='dp3:planningLibrary:v2';
+  const LEGACY='dp3:planningLibrary:v1';
+  const q=s=>document.querySelector(s);
+  const clean=s=>String(s||'').replace(/\u00a0/g,' ').replace(/[ \t]+/g,' ').replace(/\n{3,}/g,'\n\n').trim();
+  const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const read=()=>{try{const a=JSON.parse(localStorage.getItem(KEY)||'null');if(Array.isArray(a))return a;const b=JSON.parse(localStorage.getItem(LEGACY)||'[]');return Array.isArray(b)?b:[]}catch{return[]}};
+  const write=a=>localStorage.setItem(KEY,JSON.stringify(a.slice(0,120)));
+
+  function analyse(text,name='Planning document'){
+    const s=clean(text), l=s.toLowerCase();
+    const words={one:1,two:2,three:3,four:4,five:5,six:6};
+    const ym=s.match(/\byear\s*(?:group\s*)?[:\-]?\s*(one|two|three|four|five|six|[1-6])\b/i);
+    const year=ym?'Year '+(words[ym[1].toLowerCase()]||ym[1]):'';
+    const defs=[['Maths',/\b(?:maths|mathematics|white rose)\b/i],['English',/\b(?:english|literacy|writing|reading|phonics|grammar)\b/i],['Science',/\bscience\b|working scientifically/i],['Geography',/\bgeography\b/i],['History',/\bhistory\b/i],['RE',/\b(?:religious education|r\.e\.)\b/i],['PSHE',/\bpshe\b/i],['Computing',/\b(?:computing|ict)\b/i],['Music',/\bmusic\b/i],['PE',/\b(?:physical education|p\.e\.)\b/i],['Art',/\bart\b/i],['DT',/\b(?:design (?:&|and)? ?technology|d\.t\.)\b/i]];
+    let subject=''; for(const [n,r] of defs){if(r.test(s)){subject=n;break}}
+    const weekdays=['monday','tuesday','wednesday','thursday','friday'].filter(d=>l.includes(d)).length;
+    let type='Other planning';
+    if(/\b(?:termly overview|term overview|curriculum overview|medium[ -]?term|long[ -]?term)\b/i.test(s)||(/\bweek\s*1\b/i.test(s)&&/\bweek\s*[4-9]\b/i.test(s))) type='Termly overview';
+    else if(/\b(?:week beginning|week commencing|w\/?b)\b/i.test(s)||weekdays>=3) type='Weekly planning';
+    else if(/\bunit\b/i.test(s)&&/\blesson\s*[1-9]\b/i.test(s)) type='Unit / subject planning';
+    else if(/\blesson\s*(?:plan|objective|focus)\b/i.test(s)) type='Individual lesson plan';
+    const termM=s.match(/\b(autumn|spring|summer)\s*(1|2)?\b/i)||s.match(/\bterm\s*[:\-]?\s*([1-6])\b/i);
+    const term=termM?clean(termM.slice(1).filter(Boolean).join(' ')):'';
+    const weekM=s.match(/\b(?:week beginning|week commencing|w\/?b)\s*[:\-]?\s*([^\n|]{3,45})/i)||s.match(/\bweek\s*[:\-]?\s*(\d{1,2})\b/i);
+    const week=weekM?clean(weekM[1]):'';
+    let title=String(name).replace(/\.(docx?|pdf|xlsx?|csv|txt|json)$/i,'');
+    const unit=s.match(/\b(?:unit|topic)\s*[:\-]\s*([^\n|]{3,80})/i); if(unit)title=clean(unit[1]);
+    const lessonCount=(s.match(/\blesson\s*\d+\b/gi)||[]).length;
+    const weekNums=[...s.matchAll(/\b(?:week|wk)\s*(\d{1,2})\b/gi)].map(m=>+m[1]);
+    return {title,year,subject,type,term,week,lessonCount,weeksDetected:[...new Set(weekNums)].sort((a,b)=>a-b)};
+  }
+
+  function days(text){
+    const src=String(text||'').replace(/\r/g,'\n'), names=['Monday','Tuesday','Wednesday','Thursday','Friday'], out={};
+    names.forEach((d,i)=>{const next=names[i+1];const re=next?new RegExp('(?:^|\\n|\\|)\\s*'+d+'\\s*(?:\\||:|-)?\\s*([\\s\\S]*?)(?=(?:^|\\n|\\|)\\s*'+next+'\\b)','im'):new RegExp('(?:^|\\n|\\|)\\s*'+d+'\\s*(?:\\||:|-)?\\s*([\\s\\S]*)$','im');const m=src.match(re);if(m&&clean(m[1]))out[d]=clean(m[1])});
+    return out;
+  }
+
+  function loadScript(src,test){return new Promise((res,rej)=>{if(test())return res();const x=document.createElement('script');x.src=src;x.onload=res;x.onerror=rej;document.head.appendChild(x)})}
+  async function readFile(file){
+    const n=file.name.toLowerCase();
+    if(n.endsWith('.docx')){if(!window.mammoth)throw Error('Word reader is not available.');const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});const d=document.createElement('div');d.innerHTML=r.value;d.querySelectorAll('tr').forEach(row=>{const cells=[...row.querySelectorAll('th,td')].map(c=>clean(c.innerText)).filter(Boolean);row.replaceWith(document.createTextNode('\n'+cells.join(' | ')+'\n'))});return clean(d.innerText)}
+    if(n.endsWith('.pdf')){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>!!window.pdfjsLib);pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;let out='';for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p), c=await page.getTextContent();out+='\n'+c.items.map(x=>x.str).join(' ')}return clean(out)}
+    if(/\.xlsx?$/.test(n)){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',()=>!!window.XLSX);const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});return clean(wb.SheetNames.map(sn=>'\n['+sn+']\n'+XLSX.utils.sheet_to_csv(wb.Sheets[sn])).join('\n'))}
+    return clean(await file.text());
+  }
+
+  function modal(meta,text,fileName,onSave){
+    q('#dpSmartPlanModal')?.remove(); const ov=document.createElement('div');ov.id='dpSmartPlanModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px;';
+    ov.innerHTML=`<div style="width:min(760px,96vw);max-height:90vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:15px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">PLANNING CHECK</div><h2 style="margin:6px 0 4px;font-size:2rem">Daisy & Paws recognised… 🌼</h2><p style="margin:0;color:#6d6861">Check these details before saving. Nothing is added to planning until you confirm.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:22px"><label>Title<input data-m="title" value="${esc(meta.title)}"></label><label>Year group<input data-m="year" value="${esc(meta.year)}" placeholder="e.g. Year 2"></label><label>Subject<input data-m="subject" value="${esc(meta.subject)}" placeholder="e.g. Science"></label><label>Planning type<select data-m="type"><option>Termly overview</option><option>Weekly planning</option><option>Unit / subject planning</option><option>Individual lesson plan</option><option>Other planning</option></select></label><label>Term<input data-m="term" value="${esc(meta.term)}" placeholder="e.g. Autumn 1"></label><label>Week / week beginning<input data-m="week" value="${esc(meta.week)}" placeholder="e.g. Week 5"></label></div><div style="margin-top:16px;padding:14px;border-radius:16px;background:#f7f3ec;color:#6d6861">${meta.weeksDetected.length?'<b>Weeks detected:</b> '+meta.weeksDetected.join(', ')+' &nbsp; ':''}${meta.lessonCount?'<b>Lesson labels detected:</b> '+meta.lessonCount:''}</div><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Cancel</button><button data-save style="padding:11px 18px;border:0;background:#b7c4a5;color:white;font-weight:800;border-radius:999px">Save to Planning Library 🌼</button></div></div>`;
+    document.body.appendChild(ov); q('[data-m="type"]',ov); ov.querySelector('[data-m="type"]').value=meta.type; ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()}; ov.querySelector('[data-save]').onclick=()=>{const m={...meta};ov.querySelectorAll('[data-m]').forEach(x=>m[x.dataset.m]=clean(x.value));onSave(m);ov.remove()};
+  }
+
+  function install(){
+    const input=q('#planningFile'), preview=q('#planningPreview'), host=q('#dpPlanningLibrary'); if(!input||!preview)return;
+    input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
+    const analyseBtn=q('#analysePlanningBtn'); if(analyseBtn) analyseBtn.addEventListener('click',()=>{const t=clean(preview.value);if(!t)return;const m=analyse(t,input.files?.[0]?.name);setTimeout(()=>modal(m,t,input.files?.[0]?.name,saveConfirmed),0)},true);
+    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
+    // Replace V1 save action with confirmation workflow.
+    setTimeout(()=>{const b=q('#dpSavePlanning');if(b)b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const t=clean(preview.value);if(!t){alert('Choose a planning document first.');return}modal(analyse(t,input.files?.[0]?.name),t,input.files?.[0]?.name,saveConfirmed)},true)},50);
+
+    // Add a compact smart-library view below the existing one.
+    if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{alert('This plan is safely stored and ready for the next Daily Planning link stage. No timetable or daily plan has been overwritten.')}}}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
+})();
