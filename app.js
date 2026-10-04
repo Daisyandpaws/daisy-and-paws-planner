@@ -1695,15 +1695,30 @@ window.addEventListener('dp-import-timetable', event => {
     const ov=document.createElement('div');ov.id='dpLessonPreviewModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100001;display:flex;align-items:center;justify-content:center;padding:18px';
     ov.innerHTML=`<div style="width:min(900px,96vw);height:min(860px,92vh);overflow:hidden;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">PLANNING PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding it to Weekly Planning.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px;overflow:auto;padding-right:4px;min-height:0">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:430px;overflow:auto;line-height:1.55">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
     document.body.appendChild(ov); ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()};
-    // V2.9: approved imported lessons go to Weekly Planning first.
-    // Daily Plan and Home can then read the same approved lesson record instead of keeping separate copies.
+    // V2.9.1: approved imported lessons go to Weekly Planning first.
+    // Use one delegated click handler on the modal so the action remains reliable
+    // even when lesson cards are generated dynamically.
     ov.querySelectorAll('[data-add-daily]').forEach(b=>{
+      b.type='button';
       b.textContent='Add this lesson to Weekly Planning 🌼';
-      b.onclick=()=>{
-        const m=matches[+b.dataset.addDaily]; if(!m?.chunk)return;
+    });
+    ov.addEventListener('click',e=>{
+      const b=e.target.closest('[data-add-daily]');
+      if(!b||!ov.contains(b))return;
+      e.preventDefault();
+      e.stopPropagation();
+      try{
+        const m=matches[Number(b.dataset.addDaily)];
+        if(!m||!m.chunk){alert('Daisy & Paws could not find the matched lesson. Nothing has been changed.');return;}
         const f=m.chunk.fields||parseLessonFields(m.chunk.text);
-        const target=dateForMappedSlot(m.slot);
-        if(!target){alert('Daisy & Paws could not work out the week for this lesson yet. Nothing has been changed.');return}
+        let target=dateForMappedSlot(m.slot);
+        // Fallback to the Monday currently displayed in Weekly Planning if a timetable
+        // week is not available for any reason.
+        if(!target && monday instanceof Date && !isNaN(monday)){
+          const idx=['Monday','Tuesday','Wednesday','Thursday','Friday'].indexOf(m.slot.day);
+          if(idx>=0){const td=new Date(monday);td.setDate(td.getDate()+idx);target=iso(td);}
+        }
+        if(!target){alert('Daisy & Paws could not work out the week for this lesson yet. Nothing has been changed.');return;}
         const data={
           id:'linked-'+target+'-'+clean(subject)+'-'+m.slot.time,
           date:target,day:m.slot.day,time:m.slot.time,subject,
@@ -1711,30 +1726,34 @@ window.addEventListener('dp-import-timetable', event => {
           lessonNumber:m.chunk.number||'',
           title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,
           objective:f.objective||'', success:'', vocab:f.vocab||'', resources:f.resources||'',
-          next:f.assessment||'', teaching:f.teaching||f.other?.join('\n')||'',
+          next:f.assessment||'', teaching:f.teaching||((f.other||[]).join('\n'))||'',
           sourceTitle:item.title||'', sourceId:item.id||'', approvedAt:new Date().toISOString()
         };
         const d=new Date(target+'T12:00:00');
         const dayIndex=(d.getDay()+6)%7;
-        const mon=new Date(d); mon.setDate(d.getDate()-dayIndex);
+        const mon=new Date(d);mon.setDate(d.getDate()-dayIndex);mon.setHours(12,0,0,0);
         const weeklyKey='week:'+iso(mon)+':'+dayIndex;
         const heading=[data.time,data.subject,data.title].filter(Boolean).join(' – ');
         const existing=get(weeklyKey,'');
-        const lines=existing.split('\n').map(x=>x.trim()).filter(Boolean);
-        const already=lines.some(x=>x.toLowerCase()===heading.toLowerCase());
-        if(!already) save(weeklyKey,(existing?existing.replace(/\s+$/,'')+'\n':'')+heading);
+        const lines=String(existing||'').split('\n').map(x=>x.trim()).filter(Boolean);
+        if(!lines.some(x=>x.toLowerCase()===heading.toLowerCase())){
+          save(weeklyKey,(existing?String(existing).replace(/\s+$/,'')+'\n':'')+heading);
+        }
         let linked=json('linked-lessons:'+target,[]);
+        if(!Array.isArray(linked))linked=[];
         linked=linked.filter(x=>x.id!==data.id);
-        linked.push(data); linked.sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+        linked.push(data);linked.sort((a,b)=>String(a.time).localeCompare(String(b.time)));
         save('linked-lessons:'+target,linked);
-        // Keep the detailed Daily Plan source available without overwriting the user's current Daily Plan fields.
         save('daily-linked:'+target,linked);
-        monday=new Date(mon); monday.setHours(12,0,0,0); renderWeek();
+        monday=new Date(mon);renderWeek();
         if(typeof window.DP_REFRESH_HOME==='function')window.DP_REFRESH_HOME();
         ov.remove();
+        go('week');
         alert('Lesson added to Weekly Planning 🌼\n\n'+m.slot.day+' '+m.slot.time+' – '+data.subject+' – '+data.title+'\n\nThe full lesson details are safely linked for Daily Plan. Nothing else has been overwritten.');
-        const nav=document.querySelector('[data-go="week"]'); if(nav)nav.click();
-      };
+      }catch(err){
+        console.error('Daisy & Paws weekly lesson add failed:',err);
+        alert('Daisy & Paws hit a small problem adding this lesson. Nothing has been overwritten.\n\nPlease use V2.9.1 and try again.');
+      }
     });
   }
 
