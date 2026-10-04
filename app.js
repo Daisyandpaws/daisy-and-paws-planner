@@ -1786,7 +1786,11 @@ window.addEventListener('dp-import-timetable', event => {
   // V2.9 connected Home dashboard. Home is a view of approved planning, not another copy.
   function refreshConnectedHome(){
     const panel=document.querySelector('#home .dashPanel .miniRows'); if(!panel)return;
-    const today=new Date(), key=iso(today), linked=json('linked-lessons:'+key,[]);
+    const today=new Date();
+    const key=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    const prefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':';
+    let linked=[];
+    try{ linked=JSON.parse(localStorage.getItem(prefix+'linked-lessons:'+key)||'[]')||[]; }catch(e){ linked=[]; }
     const dayName=today.toLocaleDateString('en-GB',{weekday:'long'});
     let slots=[];
     try{ slots=allTimetableSlots().filter(s=>s.day===dayName); }catch(e){}
@@ -1802,7 +1806,15 @@ window.addEventListener('dp-import-timetable', event => {
     rows.sort((a,b)=>a.time.localeCompare(b.time));
     if(!rows.length){panel.innerHTML='<div class="miniRow"><span class="timeTag">—</span><span>No lessons linked for today</span><button data-go="week">→</button></div>';}
     else panel.innerHTML=rows.slice(0,8).map(r=>'<div class="miniRow"><span class="timeTag">'+esc(r.time)+'</span><span>'+esc(r.label)+(r.planned?' 🌼':'')+'</span><button data-go="'+(r.planned?'today':'timetable')+'">→</button></div>').join('');
-    panel.querySelectorAll('[data-go]').forEach(btn=>btn.onclick=()=>go(btn.dataset.go));
+    panel.querySelectorAll('[data-go]').forEach(btn=>btn.onclick=()=>{
+      const dest=btn.dataset.go;
+      const nav=document.querySelector('nav [data-go="'+dest+'"], aside [data-go="'+dest+'"], .sidebar [data-go="'+dest+'"]');
+      if(nav && nav!==btn) nav.click();
+      else {
+        const page=document.getElementById(dest);
+        if(page){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));page.classList.add('active');}
+      }
+    });
   }
   window.DP_REFRESH_HOME=refreshConnectedHome;
   setTimeout(refreshConnectedHome,80);
