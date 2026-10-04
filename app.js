@@ -1512,6 +1512,15 @@ window.addEventListener('dp-import-timetable', event => {
       const next=readMappings();next[subject]=chosen;writeMappings(next);ov.remove();
       alert(chosen.length?subject+' is now linked to '+chosen.length+' timetable slot'+(chosen.length===1?'':'s')+' 🌼\n\nDaisy & Paws will remember this mapping. No Daily Plan has been overwritten.':subject+' timetable mapping has been cleared.');
       window.dispatchEvent(new Event('dp-planning-library-changed'));
+
+      // V2.4: once a subject has been linked successfully, continue straight
+      // to the lesson-matching preview. This keeps the timetable mapping
+      // step safe, but avoids making the teacher click “Use in planning”
+      // a second time before Daisy & Paws compares the slot label (for
+      // example “Science | L4: Microhabitats”) with the saved plan.
+      if(chosen.length){
+        setTimeout(()=>lessonPreviewModal(item),0);
+      }
     };
   }
 
