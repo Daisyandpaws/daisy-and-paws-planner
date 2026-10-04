@@ -912,6 +912,9 @@ window.addEventListener('dp-import-timetable', event => {
 
     timetable = importedTimetable;
 
+    // A timetable imported for a dated school week must be saved as that week's
+    // timetable, never into the reusable Default timetable.
+    if (importMeta.weekBeginning) mode = 'week';
     saveTimetable();
     writeJSON('dp3:last-imported-timetable-context', {weekBeginning:isoDate(selectedWeek),meta:importMeta,importedAt:new Date().toISOString()});
     renderTimetable();
@@ -1066,20 +1069,39 @@ window.addEventListener('dp-import-timetable', event => {
     const weekMatch = fullText.match(/\bWeek\s*[:\-]?\s*(\d+)/i);
     const months={jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11};
     let weekBeginning='';
+    const isoLocal=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const toMonday=d=>{d=new Date(d);d.setHours(12,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return d;};
+
+    // Written dates: "Week beginning 5 October 2026", "Monday 5th October" etc.
     const explicit=fullText.match(/\b(?:week beginning|week commencing|w\/?b)\s*[:\-]?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(20\d{2}))?/i)
       || fullText.match(/\b(Monday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(20\d{2}))?/i);
     if(explicit){
       const mondayForm=explicit[1]&&/^Monday$/i.test(explicit[1]);
       const day=Number(explicit[mondayForm?2:1]), mon=months[String(explicit[mondayForm?3:2]||'').toLowerCase()];
-      const yr=Number(explicit[mondayForm?4:3]||new Date().getFullYear());
-      if(Number.isFinite(day)&&mon!=null){const d=new Date(yr,mon,day,12);d.setDate(d.getDate()-((d.getDay()+6)%7));weekBeginning=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+      const yr=Number(explicit[mondayForm?4:3]||2026);
+      if(Number.isFinite(day)&&mon!=null) weekBeginning=isoLocal(toMonday(new Date(yr,mon,day,12)));
     }
-    // Some school timetables use only Term 1 / Week N. For the 2026–27 school year,
-    // use the first full Monday in September as Week 1. Explicit dates always win.
+
+    // Numeric dates are common in school timetable headings: 05/10/2026,
+    // 5.10.26, "5/10 - 9/10/26", etc. The first date anchors the week.
+    if(!weekBeginning){
+      const numeric=fullText.match(/\b(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?\b/);
+      if(numeric){
+        const day=Number(numeric[1]), mon=Number(numeric[2])-1;
+        let yr=numeric[3]?Number(numeric[3]):2026;
+        if(yr<100)yr+=2000;
+        const d=new Date(yr,mon,day,12);
+        if(d.getFullYear()===yr&&d.getMonth()===mon&&d.getDate()===day) weekBeginning=isoLocal(toMonday(d));
+      }
+    }
+
+    // Last-resort Term 1 / Week N mapping for 2026/27. St Michael's Week 1
+    // starts Monday 31 August 2026, so Week 6 begins Monday 5 October 2026.
+    // A real date in the uploaded document always wins over this fallback.
     if(!weekBeginning && termMatch && weekMatch && Number(termMatch[1])===1){
-      const yr=new Date().getFullYear(); let first=new Date(yr,8,1,12); while(first.getDay()!==1)first.setDate(first.getDate()+1);
+      const first=toMonday(new Date(2026,8,1,12));
       const w=Math.max(1,Number(weekMatch[1])); first.setDate(first.getDate()+(w-1)*7);
-      weekBeginning=first.getFullYear()+'-'+String(first.getMonth()+1).padStart(2,'0')+'-'+String(first.getDate()).padStart(2,'0');
+      weekBeginning=isoLocal(first);
     }
     return {className:classMatch?classMatch[1]:'',term:termMatch?termMatch[1]:'',week:weekMatch?weekMatch[1]:'',weekBeginning};
   }
@@ -1729,7 +1751,10 @@ window.addEventListener('dp-import-timetable', event => {
     let base=typeof window.DP_TIMETABLE_SELECTED_WEEK==='function'?window.DP_TIMETABLE_SELECTED_WEEK():'';
     try{
       const prefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':';
-      const ctx=JSON.parse(localStorage.getItem(prefix+'dp3:last-imported-timetable-context')||'null');
+      // Timetable importer stores this context globally (unprefixed). Read that
+      // first; retain the older prefixed lookup for backwards compatibility.
+      const raw=localStorage.getItem('dp3:last-imported-timetable-context') || localStorage.getItem(prefix+'dp3:last-imported-timetable-context');
+      const ctx=JSON.parse(raw||'null');
       if(ctx&&ctx.weekBeginning)base=ctx.weekBeginning;
     }catch(e){}
     if(!base)return '';
