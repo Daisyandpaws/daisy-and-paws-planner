@@ -803,9 +803,17 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
 // Receive a timetable imported from Daisy & Paws Word timetable reader.
 // Uses recognised times where possible and falls back safely to lesson order.
 window.addEventListener('dp-import-timetable', event => {
-    const imported = event.detail;
+    const payload = event.detail;
+    const imported = payload && payload.byDay ? payload.byDay : payload;
+    const importMeta = payload && payload.meta ? payload.meta : {};
 
     if (!imported || typeof imported !== 'object') return;
+    // The uploaded timetable is the authority for its week. If its document contains
+    // an actual week-beginning/date, move the timetable editor to that week before saving.
+    if (importMeta.weekBeginning) {
+      const parsed = new Date(importMeta.weekBeginning + 'T12:00:00');
+      if (!Number.isNaN(parsed.getTime())) selectedWeek = mondayOf(parsed);
+    }
 
     const slotTimes = [...times];
 
@@ -905,6 +913,7 @@ window.addEventListener('dp-import-timetable', event => {
     timetable = importedTimetable;
 
     saveTimetable();
+    writeJSON('dp3:last-imported-timetable-context', {weekBeginning:isoDate(selectedWeek),meta:importMeta,importedAt:new Date().toISOString()});
     renderTimetable();
 
     alert('Your timetable has been added 🌼');
@@ -1055,11 +1064,24 @@ window.addEventListener('dp-import-timetable', event => {
     const classMatch = fullText.match(/\bClass\s*[:\-]?\s*([A-Za-z0-9.]+)/i);
     const termMatch = fullText.match(/\bTerm\s*[:\-]?\s*(\d+)/i);
     const weekMatch = fullText.match(/\bWeek\s*[:\-]?\s*(\d+)/i);
-    return {
-      className: classMatch ? classMatch[1] : '',
-      term: termMatch ? termMatch[1] : '',
-      week: weekMatch ? weekMatch[1] : ''
-    };
+    const months={jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11};
+    let weekBeginning='';
+    const explicit=fullText.match(/\b(?:week beginning|week commencing|w\/?b)\s*[:\-]?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(20\d{2}))?/i)
+      || fullText.match(/\b(Monday)\s+(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)(?:\s+(20\d{2}))?/i);
+    if(explicit){
+      const mondayForm=explicit[1]&&/^Monday$/i.test(explicit[1]);
+      const day=Number(explicit[mondayForm?2:1]), mon=months[String(explicit[mondayForm?3:2]||'').toLowerCase()];
+      const yr=Number(explicit[mondayForm?4:3]||new Date().getFullYear());
+      if(Number.isFinite(day)&&mon!=null){const d=new Date(yr,mon,day,12);d.setDate(d.getDate()-((d.getDay()+6)%7));weekBeginning=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+    }
+    // Some school timetables use only Term 1 / Week N. For the 2026–27 school year,
+    // use the first full Monday in September as Week 1. Explicit dates always win.
+    if(!weekBeginning && termMatch && weekMatch && Number(termMatch[1])===1){
+      const yr=new Date().getFullYear(); let first=new Date(yr,8,1,12); while(first.getDay()!==1)first.setDate(first.getDate()+1);
+      const w=Math.max(1,Number(weekMatch[1])); first.setDate(first.getDate()+(w-1)*7);
+      weekBeginning=first.getFullYear()+'-'+String(first.getMonth()+1).padStart(2,'0')+'-'+String(first.getDate()).padStart(2,'0');
+    }
+    return {className:classMatch?classMatch[1]:'',term:termMatch?termMatch[1]:'',week:weekMatch?weekMatch[1]:'',weekBeginning};
   }
 
   function parseDaySections(xml) {
@@ -1171,7 +1193,7 @@ window.addEventListener('dp-import-timetable', event => {
     add.textContent = 'Add to my timetable 🌼';
     add.style.cssText = 'border:0;border-radius:999px;padding:14px 24px;background:#b7c4a5;color:white;font-weight:700;font-size:1rem;cursor:pointer';
     add.onclick = () => {
-      window.dispatchEvent(new CustomEvent('dp-import-timetable', { detail: result.byDay }));
+      window.dispatchEvent(new CustomEvent('dp-import-timetable', { detail: { byDay: result.byDay, meta: result.meta } }));
       overlay.remove();
     };
 
@@ -1525,10 +1547,22 @@ window.addEventListener('dp-import-timetable', event => {
       if(!window.mammoth)throw Error('Word reader is not available.');
       const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
       const d=document.createElement('div'); d.innerHTML=r.value;
-      const structured={lessons:[],sections:[]};
+      const structured={lessons:[],sections:[],weeklyDays:{}};
       const norm=s=>dpFixPlanningSpacing(String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2'));
       d.querySelectorAll('table').forEach(table=>{
         const rows=[...table.querySelectorAll('tr')];
+        // Preserve day rows from weekly subject planning (Maths/English formats vary by school).
+        rows.forEach(row=>{
+          const cells=[...row.children].filter(x=>/^(TD|TH)$/.test(x.tagName)).map(c=>norm(c.textContent)).filter(Boolean);
+          if(!cells.length)return;
+          const first=cells[0]||'';
+          const dm=first.match(/\b(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Weds|Thursday|Thu|Thurs|Friday|Fri)\b/i);
+          if(!dm)return;
+          const aliases={mon:'Monday',monday:'Monday',tue:'Tuesday',tues:'Tuesday',tuesday:'Tuesday',wed:'Wednesday',weds:'Wednesday',wednesday:'Wednesday',thu:'Thursday',thurs:'Thursday',thursday:'Thursday',fri:'Friday',friday:'Friday'};
+          const day=aliases[dm[1].toLowerCase()];
+          const parts=cells.slice(1).map(dpFixPlanningSpacing).filter(Boolean);
+          if(parts.length)structured.weeklyDays[day]={day,cells:parts,text:parts.join('\n')};
+        });
         let headers=[]; let current=null;
         const finish=()=>{if(current){
           Object.keys(current.sections).forEach(k=>current.sections[k]=dpFixPlanningSpacing(current.sections[k]));
@@ -1692,7 +1726,12 @@ window.addEventListener('dp-import-timetable', event => {
   }
 
   function dateForMappedSlot(slot){
-    const base=typeof window.DP_TIMETABLE_SELECTED_WEEK==='function'?window.DP_TIMETABLE_SELECTED_WEEK():'';
+    let base=typeof window.DP_TIMETABLE_SELECTED_WEEK==='function'?window.DP_TIMETABLE_SELECTED_WEEK():'';
+    try{
+      const prefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':';
+      const ctx=JSON.parse(localStorage.getItem(prefix+'dp3:last-imported-timetable-context')||'null');
+      if(ctx&&ctx.weekBeginning)base=ctx.weekBeginning;
+    }catch(e){}
     if(!base)return '';
     const d=new Date(base+'T12:00:00'); const idx=['Monday','Tuesday','Wednesday','Thursday','Friday'].indexOf(slot.day); if(idx>=0)d.setDate(d.getDate()+idx);
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -1717,6 +1756,57 @@ window.addEventListener('dp-import-timetable', event => {
       });
     }
     return extractLessonChunks(item.text);
+  }
+
+
+  function weeklySubjectPlanningModal(item){
+    const subject=clean(item.subject)||'Subject';
+    const wd=item.weeklyDays&&typeof item.weeklyDays==='object'?item.weeklyDays:{};
+    const names=['Monday','Tuesday','Wednesday','Thursday','Friday'];
+    const available=names.filter(d=>wd[d]&&clean(wd[d].text));
+    if(!available.length){ lessonPreviewModal(item); return; }
+    const all=allTimetableSlots();
+    const aliases={maths:['maths','mathematics'],english:['english','writing','literacy']};
+    const terms=aliases[subject.toLowerCase()]||[subject.toLowerCase()];
+    const rows=available.map(day=>{
+      const slot=all.find(s=>s.day===day&&terms.some(t=>clean(s.label).toLowerCase().includes(t)))||null;
+      const parts=Array.isArray(wd[day].cells)?wd[day].cells:[];
+      let title=clean(parts[1]||parts[0]||subject);
+      title=title.replace(/\b(?:LONG|SHORT)\b.*$/i,'').replace(/\bStem\s*:.*$/i,'').trim();
+      if(title.length>95)title=title.slice(0,95).replace(/\s+\S*$/,'');
+      const text=dpFixPlanningSpacing(wd[day].text||'');
+      const rm=text.match(/\bResources?\s*:\s*([^\n]{1,500})/i);
+      return {day,slot,title:title||subject,text,resources:rm?clean(rm[1]):''};
+    });
+    q('#dpWeeklySubjectModal')?.remove();
+    const ov=document.createElement('div');ov.id='dpWeeklySubjectModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100002;display:flex;align-items:center;justify-content:center;padding:18px';
+    ov.innerHTML=`<div style="width:min(920px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">WEEKLY SUBJECT PLANNING</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Each recognised day will be kept as its own linked lesson. Daisy & Paws will only add days that have a matching ${esc(subject)} timetable slot.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${rows.map((r,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(r.day)}${r.slot?' · '+esc(r.slot.time):' · No matching timetable slot'}</div><div style="margin-top:6px"><b>${esc(r.title)}</b></div><div style="margin-top:8px;color:#6d6861;max-height:120px;overflow:auto">${esc(r.text.slice(0,700))}</div>${r.slot?`<label style="display:block;margin-top:10px"><input type="checkbox" data-weekly-pick="${i}" checked> Add this ${esc(subject)} lesson</label>`:'<div style="margin-top:10px;color:#9a6b55">Not selected — timetable does not contain a matching subject slot.</div>'}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Cancel</button><button data-add-week style="padding:11px 18px;border:0;background:#b7c4a5;color:white;font-weight:800;border-radius:999px">Add selected lessons to Weekly Planning 🌼</button></div></div>`;
+    document.body.appendChild(ov);ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove());ov.onclick=e=>{if(e.target===ov)ov.remove()};
+    ov.querySelector('[data-add-week]').onclick=()=>{
+      const picked=[...ov.querySelectorAll('[data-weekly-pick]:checked')].map(x=>rows[Number(x.dataset.weeklyPick)]).filter(r=>r&&r.slot);
+      if(!picked.length){alert('No lessons selected. Nothing has been changed.');return;}
+      const prefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':';
+      const rt=(k,d='')=>{const v=localStorage.getItem(prefix+k);return v===null?d:v};
+      const rj=(k,d)=>{try{return JSON.parse(rt(k,''))??d}catch{return d}};
+      const wr=(k,v)=>localStorage.setItem(prefix+k,typeof v==='string'?v:JSON.stringify(v));
+      const isoL=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      let firstDate='';
+      picked.forEach(r=>{
+        const target=dateForMappedSlot(r.slot);if(!target)return;if(!firstDate)firstDate=target;
+        const d=new Date(target+'T12:00:00'), idx=(d.getDay()+6)%7, mon=new Date(d);mon.setDate(d.getDate()-idx);mon.setHours(12,0,0,0);
+        const wk='week:'+isoL(mon)+':'+idx;
+        const heading=[r.slot.time,subject,r.title].filter(Boolean).join(' – ');
+        const existing=rt(wk,'');
+        const kept=String(existing||'').split('\n').filter(line=>{
+          const l=line.toLowerCase();return !(l.includes(subject.toLowerCase())&&/^\s*\d{1,2}:\d{2}/.test(line));
+        });
+        kept.push(heading);wr(wk,kept.filter(Boolean).join('\n'));
+        const data={id:'linked-'+target+'-'+clean(subject)+'-'+r.slot.time,date:target,day:r.day,time:r.slot.time,subject,timetableLabel:r.slot.label||subject,title:r.title,objective:'',success:'',vocab:'',resources:r.resources,next:'',teaching:r.text,sourceTitle:item.title||'',sourceId:item.id||'',approvedAt:new Date().toISOString()};
+        let linked=rj('linked-lessons:'+target,[]);if(!Array.isArray(linked))linked=[];linked=linked.filter(x=>x.id!==data.id);linked.push(data);linked.sort((a,b)=>String(a.time).localeCompare(String(b.time)));wr('linked-lessons:'+target,linked);wr('daily-linked:'+target,linked);
+      });
+      ov.remove();if(firstDate&&typeof window.DP_OPEN_WEEK==='function')window.DP_OPEN_WEEK(firstDate);if(typeof window.DP_REFRESH_HOME==='function')window.DP_REFRESH_HOME();
+      alert(picked.length+' '+subject+' lesson'+(picked.length===1?'':'s')+' added to Weekly Planning 🌼\n\nEach day has been kept separate and linked to its own planning.');
+    };
   }
 
   function lessonPreviewModal(item){
@@ -1810,12 +1900,12 @@ window.addEventListener('dp-import-timetable', event => {
     const input=q('#planningFile'), preview=q('#planningPreview'), host=q('#dpPlanningLibrary'); if(!input||!preview)return;
     input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';dpLastStructuredPlan={lessons:[],sections:[]};preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
     const analyseBtn=q('#analysePlanningBtn'); if(analyseBtn) analyseBtn.addEventListener('click',()=>{const t=clean(preview.value);if(!t)return;const m=analyse(t,input.files?.[0]?.name);setTimeout(()=>modal(m,t,input.files?.[0]?.name,saveConfirmed),0)},true);
-    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),lessons:Array.isArray(dpLastStructuredPlan.lessons)?dpLastStructuredPlan.lessons:[],savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
+    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),lessons:Array.isArray(dpLastStructuredPlan.lessons)?dpLastStructuredPlan.lessons:[],weeklyDays:(dpLastStructuredPlan.weeklyDays&&typeof dpLastStructuredPlan.weeklyDays==='object')?dpLastStructuredPlan.weeklyDays:{},savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
     // Replace V1 save action with confirmation workflow.
     setTimeout(()=>{const b=q('#dpSavePlanning');if(b)b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const t=clean(preview.value);if(!t){alert('Choose a planning document first.');return}modal(analyse(t,input.files?.[0]?.name),t,input.files?.[0]?.name,saveConfirmed)},true)},50);
 
     // Add a compact smart-library view below the existing one.
-    if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{const maps=readMappings();const linked=Array.isArray(maps[clean(item.subject)])&&maps[clean(item.subject)].length;if(linked)lessonPreviewModal(item);else mappingModal(item)}}}
+    if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'&&item.subject){weeklySubjectPlanningModal(item)}else if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{const maps=readMappings();const linked=Array.isArray(maps[clean(item.subject)])&&maps[clean(item.subject)].length;if(linked)lessonPreviewModal(item);else mappingModal(item)}}}
   }
 
   // V2.9 connected Home dashboard. Home is a view of approved planning, not another copy.
