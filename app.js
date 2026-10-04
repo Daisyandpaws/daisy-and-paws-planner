@@ -1490,7 +1490,7 @@ window.addEventListener('dp-import-timetable', event => {
 })();
 
 // ============================================================
-// DAISY & PAWS — INTELLIGENT PLANNING IMPORTER V2.7 — STRUCTURED LESSON RECORDS
+// DAISY & PAWS — INTELLIGENT PLANNING IMPORTER V2.9.8 — MULTI-WEEK PLANNING
 // Adds confirmation, flexible school formats, PDF/XLSX reading,
 // richer library metadata and timetable-aware weekly placement.
 // ============================================================
@@ -1503,7 +1503,7 @@ window.addEventListener('dp-import-timetable', event => {
   const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read=()=>{try{const a=JSON.parse(localStorage.getItem(KEY)||'null');if(Array.isArray(a))return a;const b=JSON.parse(localStorage.getItem(LEGACY)||'[]');return Array.isArray(b)?b:[]}catch{return[]}};
   const write=a=>localStorage.setItem(KEY,JSON.stringify(a.slice(0,120)));
-  let dpLastStructuredPlan={lessons:[],sections:[]};
+  let dpLastStructuredPlan={lessons:[],sections:[],weeklyDays:{},weeklyWeeks:{}};
 
   function analyse(text,name='Planning document'){
     const s=clean(text), l=s.toLowerCase();
@@ -1527,12 +1527,15 @@ window.addEventListener('dp-import-timetable', event => {
     else if(/\blesson\s*(?:plan|objective|focus)\b/i.test(s)) type='Individual lesson plan';
     const termM=s.match(/\b(autumn|spring|summer)\s*(1|2)?\b/i)||s.match(/\bterm\s*[:\-]?\s*([1-6])\b/i);
     const term=termM?clean(termM.slice(1).filter(Boolean).join(' ')):'';
+    const weekRange=s.match(/\bweeks?\s*[:\-]?\s*(\d{1,2})\s*(?:[-–—&]|and|to)\s*(\d{1,2})\b/i);
     const weekM=s.match(/\b(?:week beginning|week commencing|w\/?b)\s*[:\-]?\s*([^\n|]{3,45})/i)||s.match(/\bweek\s*[:\-]?\s*(\d{1,2})\b/i);
-    const week=weekM?clean(weekM[1]):'';
+    const week=weekRange?('Weeks '+weekRange[1]+'–'+weekRange[2]):(weekM?clean(weekM[1]):'');
     let title=String(name).replace(/\.(docx?|pdf|xlsx?|csv|txt|json)$/i,'');
     const unit=s.match(/\b(?:unit|topic)\s*[:\-]\s*([^\n|]{3,80})/i); if(unit)title=clean(unit[1]);
     const lessonCount=(s.match(/\blesson\s*\d+\b/gi)||[]).length;
-    const weekNums=[...s.matchAll(/\b(?:week|wk)\s*(\d{1,2})\b/gi)].map(m=>+m[1]);
+    let weekNums=[];
+    if(weekRange){const a=+weekRange[1],b=+weekRange[2];if(b>=a&&b-a<=12)for(let n=a;n<=b;n++)weekNums.push(n);}
+    else weekNums=[...s.matchAll(/\b(?:week|wk)\s*(\d{1,2})\b/gi)].map(m=>+m[1]);
     return {title,year,subject,type,term,week,lessonCount,weeksDetected:[...new Set(weekNums)].sort((a,b)=>a-b)};
   }
 
@@ -1569,11 +1572,40 @@ window.addEventListener('dp-import-timetable', event => {
       if(!window.mammoth)throw Error('Word reader is not available.');
       const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
       const d=document.createElement('div'); d.innerHTML=r.value;
-      const structured={lessons:[],sections:[],weeklyDays:{}};
+      const structured={lessons:[],sections:[],weeklyDays:{},weeklyWeeks:{}};
       const norm=s=>dpFixPlanningSpacing(String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2'));
       d.querySelectorAll('table').forEach(table=>{
         const rows=[...table.querySelectorAll('tr')];
-        // Preserve day rows from weekly subject planning (Maths/English formats vary by school).
+        // Multi-week Word plans: preserve each repeated Monday-Friday block separately.
+        // This is deliberately table-structure based rather than tied to one school's template.
+        const tableText=norm(table.textContent);
+        let planWeeks=[];
+        const range=tableText.match(/\bWeeks?\s*[:\-]?\s*(\d{1,2})\s*(?:[-–—&]|and|to)\s*(\d{1,2})\b/i);
+        if(range){const a=+range[1],b=+range[2];if(b>=a&&b-a<=12)for(let n=a;n<=b;n++)planWeeks.push(n);}
+        let weekBlock=-1, contentCols=[];
+        const dayAliases={mon:'Monday',monday:'Monday',tue:'Tuesday',tues:'Tuesday',tuesday:'Tuesday',wed:'Wednesday',weds:'Wednesday',wednesday:'Wednesday',thu:'Thursday',thurs:'Thursday',thursday:'Thursday',fri:'Friday',friday:'Friday'};
+        rows.forEach(row=>{
+          const cells=[...row.children].filter(x=>/^(TD|TH)$/.test(x.tagName)).map(c=>norm(c.textContent));
+          if(!cells.length)return;
+          if(/^day$/i.test(cells[0]||'')){
+            weekBlock++;
+            contentCols=cells.map((x,i)=>(/\b(?:writing|english|maths|mathematics)\b/i.test(x)?i:-1)).filter(i=>i>0);
+            return;
+          }
+          if(weekBlock<0)return;
+          const dm=(cells[0]||'').match(/^\s*(Monday|Mon|Tuesday|Tue|Tues|Wednesday|Wed|Weds|Thursday|Thu|Thurs|Friday|Fri)\b/i);
+          if(!dm)return;
+          const day=dayAliases[dm[1].toLowerCase()];
+          let vals=(contentCols.length?contentCols.map(i=>cells[i]):cells.slice(1)).map(dpFixPlanningSpacing).filter(Boolean);
+          vals=vals.filter((v,i,a)=>a.indexOf(v)===i);
+          if(!vals.length)return;
+          const wn=planWeeks[weekBlock];
+          if(wn){
+            structured.weeklyWeeks[wn]=structured.weeklyWeeks[wn]||{};
+            structured.weeklyWeeks[wn][day]={day,cells:vals,text:vals.join('\n')};
+          }
+        });
+        // Preserve day rows from single-week weekly subject planning (Maths/English formats vary by school).
         rows.forEach(row=>{
           const cells=[...row.children].filter(x=>/^(TD|TH)$/.test(x.tagName)).map(c=>norm(c.textContent)).filter(Boolean);
           if(!cells.length)return;
@@ -1784,8 +1816,66 @@ window.addEventListener('dp-import-timetable', event => {
   }
 
 
+  function weekBeginningForPlanningWeek(item,weekNumber){
+    const n=Number(weekNumber); if(!Number.isFinite(n)||n<1)return '';
+    // UK school-year fallback: Week 1 is the Monday on/before 1 September.
+    // Explicit dates in a planning file remain preferable; this only resolves numbered weeks.
+    const now=new Date(); let y=now.getFullYear(); if(now.getMonth()<7)y--;
+    const sep1=new Date(y,8,1,12), offset=(sep1.getDay()+6)%7, mon=new Date(sep1); mon.setDate(sep1.getDate()-offset+(n-1)*7);
+    return mon.getFullYear()+'-'+String(mon.getMonth()+1).padStart(2,'0')+'-'+String(mon.getDate()).padStart(2,'0');
+  }
+
+  function timetableSlotsForWeek(weekBeginning){
+    if(typeof window.DP_GET_WEEKLY_TIMETABLE!=='function')return [];
+    const map=window.DP_GET_WEEKLY_TIMETABLE(weekBeginning?new Date(weekBeginning+'T12:00:00'):undefined)||{};
+    const out=[]; ['Monday','Tuesday','Wednesday','Thursday','Friday'].forEach(day=>(map[day]||[]).forEach(slot=>out.push({day:slot.day||day,time:slot.time||'',label:slot.subject||''})));
+    return out;
+  }
+
+  function multiWeekSubjectPlanningModal(item,weekNums){
+    const subject=clean(item.subject)||'Subject', names=['Monday','Tuesday','Wednesday','Thursday','Friday'];
+    const aliases={maths:['maths','mathematics'],english:['english','writing','literacy']};
+    const terms=aliases[subject.toLowerCase()]||[subject.toLowerCase()];
+    const rows=[];
+    weekNums.forEach(wn=>{
+      const base=weekBeginningForPlanningWeek(item,wn), slots=timetableSlotsForWeek(base), wd=item.weeklyWeeks[wn]||{};
+      names.forEach(day=>{
+        if(!wd[day]||!clean(wd[day].text))return;
+        const slot=slots.find(s=>s.day===day&&terms.some(t=>clean(s.label).toLowerCase().includes(t)))||null;
+        const parts=Array.isArray(wd[day].cells)?wd[day].cells:[];
+        let title=clean(parts.find(x=>x&&x.length<140)||subject).replace(/\b(?:LONG|SHORT)\b\s*/ig,'').trim();
+        if(title.length>110)title=title.slice(0,110).replace(/\s+\S*$/,'');
+        rows.push({weekNumber:wn,weekBeginning:base,day,slot,title:title||subject,text:dpFixPlanningSpacing(wd[day].text||'')});
+      });
+    });
+    if(!rows.length){alert('Daisy & Paws found the weeks in this plan, but could not safely separate their daily lessons. Nothing has been changed.');return;}
+    q('#dpWeeklySubjectModal')?.remove();
+    const ov=document.createElement('div');ov.id='dpWeeklySubjectModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100002;display:flex;align-items:center;justify-content:center;padding:18px';
+    ov.innerHTML=`<div style="width:min(980px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">MULTI-WEEK SUBJECT PLANNING</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} · Weeks ${weekNums.join(' & ')} 🌼</h2><p style="margin:0;color:#6d6861">Each week is kept separate and matched against that week's saved timetable. Nothing is moved to whichever week happens to be open.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${rows.map((r,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">Week ${r.weekNumber} · ${esc(r.day)}${r.slot?' · '+esc(r.slot.time):' · No matching '+esc(subject)+' timetable slot'}</div><div style="font-size:.9rem;color:#777;margin-top:3px">Week beginning ${esc(new Date(r.weekBeginning+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}))}</div><div style="margin-top:6px"><b>${esc(r.title)}</b></div><div style="margin-top:8px;color:#6d6861;max-height:130px;overflow:auto;white-space:pre-wrap">${esc(r.text.slice(0,900))}</div>${r.slot?`<label style="display:block;margin-top:10px"><input type="checkbox" data-multi-pick="${i}" checked> Add this ${esc(subject)} lesson</label>`:'<div style="margin-top:10px;color:#9a6b55">Not selected — this week does not contain a matching subject slot.</div>'}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Cancel</button><button data-add-multi style="padding:11px 18px;border:0;background:#b7c4a5;color:white;font-weight:800;border-radius:999px">Add selected lessons to Weekly Planning 🌼</button></div></div>`;
+    document.body.appendChild(ov);ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove());ov.onclick=e=>{if(e.target===ov)ov.remove()};
+    ov.querySelector('[data-add-multi]').onclick=()=>{
+      const picked=[...ov.querySelectorAll('[data-multi-pick]:checked')].map(x=>rows[Number(x.dataset.multiPick)]).filter(r=>r&&r.slot);
+      if(!picked.length){alert('No matched lessons selected. Nothing has been changed.');return;}
+      const prefix='dp3:'+((window.DP_USER&&window.DP_USER.id)||'guest')+':', rt=(k,d='')=>localStorage.getItem(prefix+k)??d, wr=(k,v)=>localStorage.setItem(prefix+k,typeof v==='string'?v:JSON.stringify(v));
+      const rj=(k,d)=>{try{return JSON.parse(rt(k,''))??d}catch{return d}}, isoL=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      let first='';
+      picked.forEach(r=>{
+        const di=names.indexOf(r.day), d=new Date(r.weekBeginning+'T12:00:00');d.setDate(d.getDate()+di);const target=isoL(d);if(!first)first=target;
+        const wk='week:'+r.weekBeginning+':'+di, heading=[r.slot.time,subject,r.title].filter(Boolean).join(' – '), existing=rt(wk,'');
+        const kept=String(existing||'').split('\n').filter(line=>{const l=line.toLowerCase();return !(l.includes(subject.toLowerCase())&&/^\s*\d{1,2}:\d{2}/.test(line))});kept.push(heading);wr(wk,kept.filter(Boolean).join('\n'));
+        const data={id:'linked-'+target+'-'+clean(subject)+'-'+r.slot.time,date:target,day:r.day,time:r.slot.time,subject,timetableLabel:r.slot.label||subject,title:r.title,objective:'',success:'',vocab:'',resources:'',next:'',teaching:r.text,sourceTitle:item.title||'',sourceId:item.id||'',planningWeek:r.weekNumber,approvedAt:new Date().toISOString()};
+        let linked=rj('linked-lessons:'+target,[]);if(!Array.isArray(linked))linked=[];linked=linked.filter(x=>x.id!==data.id);linked.push(data);linked.sort((a,b)=>String(a.time).localeCompare(String(b.time)));wr('linked-lessons:'+target,linked);wr('daily-linked:'+target,linked);
+      });
+      ov.remove();if(first&&typeof window.DP_OPEN_WEEK==='function')window.DP_OPEN_WEEK(first);if(typeof window.DP_REFRESH_HOME==='function')window.DP_REFRESH_HOME();
+      alert(picked.length+' '+subject+' lessons added across '+weekNums.length+' weeks 🌼\n\nWeek '+weekNums[0]+' and Week '+weekNums[weekNums.length-1]+' have been kept separate.');
+    };
+  }
+
   function weeklySubjectPlanningModal(item){
     const subject=clean(item.subject)||'Subject';
+    const multi=item.weeklyWeeks&&typeof item.weeklyWeeks==='object'?item.weeklyWeeks:{};
+    const multiNums=Object.keys(multi).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+    if(multiNums.length>1){ multiWeekSubjectPlanningModal(item,multiNums); return; }
     const wd=item.weeklyDays&&typeof item.weeklyDays==='object'?item.weeklyDays:{};
     const names=['Monday','Tuesday','Wednesday','Thursday','Friday'];
     const available=names.filter(d=>wd[d]&&clean(wd[d].text));
@@ -1925,7 +2015,7 @@ window.addEventListener('dp-import-timetable', event => {
     const input=q('#planningFile'), preview=q('#planningPreview'), host=q('#dpPlanningLibrary'); if(!input||!preview)return;
     input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';dpLastStructuredPlan={lessons:[],sections:[]};preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
     const analyseBtn=q('#analysePlanningBtn'); if(analyseBtn) analyseBtn.addEventListener('click',()=>{const t=clean(preview.value);if(!t)return;const m=analyse(t,input.files?.[0]?.name);setTimeout(()=>modal(m,t,input.files?.[0]?.name,saveConfirmed),0)},true);
-    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),lessons:Array.isArray(dpLastStructuredPlan.lessons)?dpLastStructuredPlan.lessons:[],weeklyDays:(dpLastStructuredPlan.weeklyDays&&typeof dpLastStructuredPlan.weeklyDays==='object')?dpLastStructuredPlan.weeklyDays:{},savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
+    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),lessons:Array.isArray(dpLastStructuredPlan.lessons)?dpLastStructuredPlan.lessons:[],weeklyDays:(dpLastStructuredPlan.weeklyDays&&typeof dpLastStructuredPlan.weeklyDays==='object')?dpLastStructuredPlan.weeklyDays:{},weeklyWeeks:(dpLastStructuredPlan.weeklyWeeks&&typeof dpLastStructuredPlan.weeklyWeeks==='object')?dpLastStructuredPlan.weeklyWeeks:{},savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
     // Replace V1 save action with confirmation workflow.
     setTimeout(()=>{const b=q('#dpSavePlanning');if(b)b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const t=clean(preview.value);if(!t){alert('Choose a planning document first.');return}modal(analyse(t,input.files?.[0]?.name),t,input.files?.[0]?.name,saveConfirmed)},true)},50);
 
