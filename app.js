@@ -1693,9 +1693,49 @@ window.addEventListener('dp-import-timetable', event => {
     const chunks=chunksForItem(item);
     const matches=slots.map(slot=>{let best=null,bestScore=-1;chunks.forEach(c=>{const sc=scoreChunk(c,slot,subject);if(sc>bestScore){best=c;bestScore=sc}});return {slot,chunk:bestScore>0?best:null,score:bestScore}});
     const ov=document.createElement('div');ov.id='dpLessonPreviewModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100001;display:flex;align-items:center;justify-content:center;padding:18px';
-    ov.innerHTML=`<div style="width:min(900px,96vw);height:min(860px,92vh);overflow:hidden;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px;overflow:auto;padding-right:4px;min-height:0">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:430px;overflow:auto;line-height:1.55">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
+    ov.innerHTML=`<div style="width:min(900px,96vw);height:min(860px,92vh);overflow:hidden;display:flex;flex-direction:column;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">PLANNING PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding it to Weekly Planning.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px;overflow:auto;padding-right:4px;min-height:0">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:430px;overflow:auto;line-height:1.55">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
     document.body.appendChild(ov); ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()};
-    ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const f=m.chunk.fields||parseLessonFields(m.chunk.text);const data={title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,objective:f.objective||f.title||lessonTitleFromLabel(m.slot.label,subject)||subject,success:'',vocab:f.vocab||'',resources:f.resources||'',next:f.assessment||'',teaching:f.teaching||f.other?.join('\n')||''};const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);set('lesson-teaching',data.teaching);set('lesson-notes',data.teaching);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
+    // V2.9: approved imported lessons go to Weekly Planning first.
+    // Daily Plan and Home can then read the same approved lesson record instead of keeping separate copies.
+    ov.querySelectorAll('[data-add-daily]').forEach(b=>{
+      b.textContent='Add this lesson to Weekly Planning 🌼';
+      b.onclick=()=>{
+        const m=matches[+b.dataset.addDaily]; if(!m?.chunk)return;
+        const f=m.chunk.fields||parseLessonFields(m.chunk.text);
+        const target=dateForMappedSlot(m.slot);
+        if(!target){alert('Daisy & Paws could not work out the week for this lesson yet. Nothing has been changed.');return}
+        const data={
+          id:'linked-'+target+'-'+clean(subject)+'-'+m.slot.time,
+          date:target,day:m.slot.day,time:m.slot.time,subject,
+          timetableLabel:m.slot.label||subject,
+          lessonNumber:m.chunk.number||'',
+          title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,
+          objective:f.objective||'', success:'', vocab:f.vocab||'', resources:f.resources||'',
+          next:f.assessment||'', teaching:f.teaching||f.other?.join('\n')||'',
+          sourceTitle:item.title||'', sourceId:item.id||'', approvedAt:new Date().toISOString()
+        };
+        const d=new Date(target+'T12:00:00');
+        const dayIndex=(d.getDay()+6)%7;
+        const mon=new Date(d); mon.setDate(d.getDate()-dayIndex);
+        const weeklyKey='week:'+iso(mon)+':'+dayIndex;
+        const heading=[data.time,data.subject,data.title].filter(Boolean).join(' – ');
+        const existing=get(weeklyKey,'');
+        const lines=existing.split('\n').map(x=>x.trim()).filter(Boolean);
+        const already=lines.some(x=>x.toLowerCase()===heading.toLowerCase());
+        if(!already) save(weeklyKey,(existing?existing.replace(/\s+$/,'')+'\n':'')+heading);
+        let linked=json('linked-lessons:'+target,[]);
+        linked=linked.filter(x=>x.id!==data.id);
+        linked.push(data); linked.sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+        save('linked-lessons:'+target,linked);
+        // Keep the detailed Daily Plan source available without overwriting the user's current Daily Plan fields.
+        save('daily-linked:'+target,linked);
+        monday=new Date(mon); monday.setHours(12,0,0,0); renderWeek();
+        if(typeof window.DP_REFRESH_HOME==='function')window.DP_REFRESH_HOME();
+        ov.remove();
+        alert('Lesson added to Weekly Planning 🌼\n\n'+m.slot.day+' '+m.slot.time+' – '+data.subject+' – '+data.title+'\n\nThe full lesson details are safely linked for Daily Plan. Nothing else has been overwritten.');
+        const nav=document.querySelector('[data-go="week"]'); if(nav)nav.click();
+      };
+    });
   }
 
   function install(){
@@ -1709,5 +1749,31 @@ window.addEventListener('dp-import-timetable', event => {
     // Add a compact smart-library view below the existing one.
     if(host&&!q('#dpSmartLibrary')){const box=document.createElement('div');box.id='dpSmartLibrary';box.style.cssText='margin-top:18px;border-top:1px solid #ece4d9;padding-top:16px';host.appendChild(box);const render=()=>{const a=read();box.innerHTML=a.length?'<div style="font-weight:800;margin-bottom:10px">Intelligent planning records</div>'+a.slice(0,20).map(x=>`<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #f0e9df"><div><b>${esc(x.title)}</b><div style="font-size:.9rem;color:#6d6861">${esc([x.type,x.subject,x.year,x.term,x.week].filter(Boolean).join(' · '))}</div></div><button data-smart-use="${x.id}" style="border:0;border-radius:999px;padding:8px 12px;background:#b7c4a5;color:white;font-weight:700">Use in planning</button></div>`).join(''):'<div style="color:#6d6861">No intelligently analysed plans saved yet.</div>';};render();window.addEventListener('dp-planning-library-changed',render);box.onclick=e=>{const b=e.target.closest('[data-smart-use]');if(!b)return;const item=read().find(x=>x.id===b.dataset.smartUse);if(!item)return;if(item.type==='Weekly planning'){const by=days(item.text), names=['Monday','Tuesday','Wednesday','Thursday','Friday'];const boxes=[...document.querySelectorAll('#weekGrid textarea[data-w]')];const found=names.filter(d=>by[d]).length;if(!found){alert('This weekly plan is saved, but Daisy & Paws could not safely identify Monday–Friday sections. Nothing has been changed.');return}if(confirm('Add the '+found+' recognised day sections to the currently displayed week?')){names.forEach((d,i)=>{if(boxes[i]&&by[d]){boxes[i].value=by[d];boxes[i].dispatchEvent(new Event('input',{bubbles:true}))}});alert('Weekly planning added 🌼')}}else{const maps=readMappings();const linked=Array.isArray(maps[clean(item.subject)])&&maps[clean(item.subject)].length;if(linked)lessonPreviewModal(item);else mappingModal(item)}}}
   }
+
+  // V2.9 connected Home dashboard. Home is a view of approved planning, not another copy.
+  function refreshConnectedHome(){
+    const panel=document.querySelector('#home .dashPanel .miniRows'); if(!panel)return;
+    const today=new Date(), key=iso(today), linked=json('linked-lessons:'+key,[]);
+    const dayName=today.toLocaleDateString('en-GB',{weekday:'long'});
+    let slots=[];
+    try{ slots=allTimetableSlots().filter(s=>s.day===dayName); }catch(e){}
+    const bySlot=new Map(linked.map(x=>[x.time+'|'+clean(x.subject),x]));
+    const rows=[];
+    slots.forEach(s=>{
+      const subj=clean((s.label||'').split('|')[0])||clean(s.label)||'Lesson';
+      let plan=linked.find(x=>x.time===s.time && (clean(x.subject)===subj || clean(s.label).includes(clean(x.subject))));
+      const label=plan ? (plan.subject+' – '+plan.title) : (s.label||subj);
+      rows.push({time:s.time,label,planned:!!plan});
+    });
+    linked.forEach(x=>{if(!rows.some(r=>r.time===x.time&&r.label.includes(x.title)))rows.push({time:x.time,label:x.subject+' – '+x.title,planned:true})});
+    rows.sort((a,b)=>a.time.localeCompare(b.time));
+    if(!rows.length){panel.innerHTML='<div class="miniRow"><span class="timeTag">—</span><span>No lessons linked for today</span><button data-go="week">→</button></div>';}
+    else panel.innerHTML=rows.slice(0,8).map(r=>'<div class="miniRow"><span class="timeTag">'+esc(r.time)+'</span><span>'+esc(r.label)+(r.planned?' 🌼':'')+'</span><button data-go="'+(r.planned?'today':'timetable')+'">→</button></div>').join('');
+    panel.querySelectorAll('[data-go]').forEach(btn=>btn.onclick=()=>go(btn.dataset.go));
+  }
+  window.DP_REFRESH_HOME=refreshConnectedHome;
+  setTimeout(refreshConnectedHome,80);
+  document.querySelectorAll('[data-go="home"]').forEach(b=>b.addEventListener('click',()=>setTimeout(refreshConnectedHome,0)));
+
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();
