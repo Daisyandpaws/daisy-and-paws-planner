@@ -594,7 +594,7 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
   function normaliseTime(value) {
     const match = String(value || '').trim().match(/^([0-1]?\d|2[0-3])[:.]([0-5]\d)$/);
     if (!match) return null;
-    return `${Number(match[1])}:${match[2]}`;
+    return `${String(Number(match[1])).padStart(2, '0')}:${match[2]}`;
   }
 
   function editTimetableTimes() {
@@ -605,16 +605,16 @@ if (subject !== 'Not detected' && typeof window.DP_FIND_SUBJECT_SLOTS === 'funct
     overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:100000;display:flex;align-items:center;justify-content:center;padding:20px;`;
 
     const panel = document.createElement('div');
-    panel.style.cssText = `width:min(520px,100%);max-height:85vh;overflow:auto;background:#fffdf8;border:1px solid #ded5c8;border-radius:24px;padding:24px;box-shadow:0 18px 55px rgba(0,0,0,.2);font-family:inherit;`;
+    panel.style.cssText = `width:min(520px,100%);height:min(680px,88vh);display:flex;flex-direction:column;overflow:hidden;background:#fffdf8;border:1px solid #ded5c8;border-radius:24px;padding:24px;box-shadow:0 18px 55px rgba(0,0,0,.2);font-family:inherit;box-sizing:border-box;`;
     panel.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:8px;">
         <h2 style="margin:0;font-size:1.45rem;">Edit timetable times 🌼</h2>
         <button type="button" id="dpTimesClose" aria-label="Close" style="border:0;background:#f3f1ed;border-radius:999px;padding:9px 13px;cursor:pointer;font-size:1rem;">×</button>
       </div>
       <p style="margin:0 0 18px;color:#666;line-height:1.45;">Set the row times used by your timetable. Add or remove rows, then save when you are happy.</p>
-      <div id="dpTimesRows" style="display:grid;gap:10px;"></div>
-      <button type="button" id="dpAddTime" style="margin-top:14px;border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:10px 16px;cursor:pointer;font:inherit;">+ Add time</button>
-      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:22px;">
+      <div id="dpTimesRows" style="display:grid;gap:10px;overflow-y:auto;min-height:0;padding-right:4px;"></div>
+      <button type="button" id="dpAddTime" style="flex:0 0 auto;margin-top:14px;border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:10px 16px;cursor:pointer;font:inherit;">+ Add time</button>
+      <div style="flex:0 0 auto;display:flex;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid #eee7dd;">
         <button type="button" id="dpCancelTimes" style="border:1px solid #d8cfc2;background:#fff;border-radius:999px;padding:11px 18px;cursor:pointer;font:inherit;">Cancel</button>
         <button type="button" id="dpSaveTimes" style="border:0;background:#b7c4a5;color:white;border-radius:999px;padding:11px 20px;cursor:pointer;font:inherit;font-weight:700;">Save times 🌼</button>
       </div>`;
