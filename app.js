@@ -1411,7 +1411,7 @@ window.addEventListener('dp-import-timetable', event => {
 })();
 
 // ============================================================
-// DAISY & PAWS — INTELLIGENT PLANNING IMPORTER V2
+// DAISY & PAWS — INTELLIGENT PLANNING IMPORTER V2.7 — STRUCTURED LESSON RECORDS
 // Adds confirmation, flexible school formats, PDF/XLSX reading,
 // richer library metadata and timetable-aware weekly placement.
 // ============================================================
@@ -1424,6 +1424,7 @@ window.addEventListener('dp-import-timetable', event => {
   const esc=s=>String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const read=()=>{try{const a=JSON.parse(localStorage.getItem(KEY)||'null');if(Array.isArray(a))return a;const b=JSON.parse(localStorage.getItem(LEGACY)||'[]');return Array.isArray(b)?b:[]}catch{return[]}};
   const write=a=>localStorage.setItem(KEY,JSON.stringify(a.slice(0,120)));
+  let dpLastStructuredPlan={lessons:[],sections:[]};
 
   function analyse(text,name='Planning document'){
     const s=clean(text), l=s.toLowerCase();
@@ -1468,46 +1469,51 @@ window.addEventListener('dp-import-timetable', event => {
     if(n.endsWith('.docx')){
       if(!window.mammoth)throw Error('Word reader is not available.');
       const r=await mammoth.convertToHtml({arrayBuffer:await file.arrayBuffer()});
-      const d=document.createElement('div');d.innerHTML=r.value;
-      // Preserve Word table structure instead of flattening every cell together.
-      // This is intentionally heading-driven so different schools can use different templates.
+      const d=document.createElement('div'); d.innerHTML=r.value;
+      const structured={lessons:[],sections:[]};
+      const norm=s=>clean(String(s||'').replace(/([a-z])([A-Z])/g,'$1 $2'));
       d.querySelectorAll('table').forEach(table=>{
         const rows=[...table.querySelectorAll('tr')];
-        let headers=[];
-        const blocks=[];
-        rows.forEach((row,ri)=>{
-          const raw=[...row.querySelectorAll(':scope > th, :scope > td')].map(c=>clean(c.innerText));
-          if(!raw.some(Boolean))return;
-          const lower=raw.map(x=>x.toLowerCase());
-          const looksHeader=raw.some(x=>/^(objectives?|teaching notes?|resources?|equipment|activity|assessment|vocabulary)$/i.test(x));
-          if(looksHeader){headers=raw;blocks.push(raw.filter(Boolean).join(' | '));return;}
-          const lessonCell=raw.find(x=>/^lesson\s*\d+/i.test(x));
-          if(lessonCell){
-            const m=lessonCell.match(/^lesson\s*(\d+)/i);
-            const number=m?m[1]:'';
-            const parts=['=== Lesson '+number+' ==='];
-            const seen=new Set();
-            raw.forEach((val,i)=>{
-              if(!val)return;
-              const norm=val.toLowerCase().replace(/\s+/g,' ').trim();
-              if(seen.has(norm))return; seen.add(norm);
-              let label=(headers[i]||'').trim();
-              if(i===0&&!label)label='Objectives';
-              if(/^lesson\s*\d+/i.test(val)){
-                const rest=clean(val.replace(/^lesson\s*\d+\s*(?:\([^)]*\))?/i,''));
-                if(rest)parts.push((label||'Objectives')+': '+rest);
-              }else parts.push((label||('Section '+(i+1)))+': '+val);
-            });
-            blocks.push(parts.join('\n'));
-          }else{
-            const seen=new Set(), bits=[];
-            raw.forEach((val,i)=>{if(!val)return;const norm=val.toLowerCase().replace(/\s+/g,' ').trim();if(seen.has(norm))return;seen.add(norm);bits.push(headers[i]?headers[i]+': '+val:val)});
-            if(bits.length)blocks.push(bits.join('\n'));
-          }
-        });
-        table.replaceWith(document.createTextNode('\n'+blocks.join('\n\n')+'\n'));
+        let headers=[]; let current=null;
+        const finish=()=>{if(current){
+          Object.keys(current.sections).forEach(k=>current.sections[k]=clean(current.sections[k]));
+          current.raw=clean(Object.entries(current.sections).map(([k,v])=>v?k+': '+v:'').filter(Boolean).join('\n'));
+          structured.lessons.push(current); current=null;
+        }};
+        rows.forEach(row=>{
+          const cells=[...row.children].filter(x=>/^(TD|TH)$/.test(x.tagName)).map(c=>norm(c.textContent));
+          if(!cells.some(Boolean))return;
+          const headerish=cells.filter(Boolean).some(x=>/^(objectives?|teaching(?: notes?)?|resources?|equipment|activity|assessment|vocabulary|success criteria|learning objective)$/i.test(x));
+          if(headerish){headers=cells.map((x,i)=>x||('Section '+(i+1))); return;}
+          const joined=cells.join(' | ');
+          const lm=joined.match(/\b(?:Lesson|L)\s*(\d{1,2})\b/i);
+          if(lm){finish(); current={number:Number(lm[1]),title:'',sections:{}};}
+          if(!current)return;
+          cells.forEach((val,i)=>{
+            if(!val)return;
+            const label=norm(headers[i]||('Section '+(i+1)));
+            let v=val.replace(new RegExp('^\\s*(?:Lesson|L)\\s*'+current.number+'\\s*(?:\\([^)]*\\))?\\s*','i'),'').trim();
+            if(!v && /lesson/i.test(val))return;
+            current.sections[label]=(current.sections[label]?current.sections[label]+'\n':'')+v;
+            const titleMatch=val.match(new RegExp('(?:^|\\s)L'+current.number+'\\s+([^\\n|]{3,100})','i'));
+            if(titleMatch&&!current.title)current.title=norm(titleMatch[1]);
+          });
+        }); finish();
+        const summary=structured.lessons.map(L=>{
+          const parts=['=== Lesson '+L.number+' ==='];
+          Object.entries(L.sections).forEach(([k,v])=>{if(v)parts.push(k+': '+v)});
+          return parts.join('\n');
+        }).join('\n\n');
+        if(summary)table.replaceWith(document.createTextNode('\n'+summary+'\n'));
       });
-      return clean(d.innerText)
+      // Fallback for Word files that are not table based.
+      if(!structured.lessons.length){
+        const plain=clean(d.textContent);
+        const hits=[...plain.matchAll(/\b(?:Lesson|L)\s*(\d{1,2})\b/gi)];
+        hits.forEach((m,i)=>structured.lessons.push({number:Number(m[1]),title:'',sections:{Content:clean(plain.slice(m.index,i+1<hits.length?hits[i+1].index:plain.length))}}));
+      }
+      dpLastStructuredPlan=structured;
+      return clean(d.textContent);
     }
     if(n.endsWith('.pdf')){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',()=>!!window.pdfjsLib);pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';const pdf=await pdfjsLib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;let out='';for(let p=1;p<=pdf.numPages;p++){const page=await pdf.getPage(p), c=await page.getTextContent();out+='\n'+c.items.map(x=>x.str).join(' ')}return clean(out)}
     if(/\.xlsx?$/.test(n)){await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',()=>!!window.XLSX);const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});return clean(wb.SheetNames.map(sn=>'\n['+sn+']\n'+XLSX.utils.sheet_to_csv(wb.Sheets[sn])).join('\n'))}
@@ -1636,25 +1642,46 @@ window.addEventListener('dp-import-timetable', event => {
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   }
 
+  function chunksForItem(item){
+    if(Array.isArray(item.lessons)&&item.lessons.length){
+      return item.lessons.map(L=>{
+        const fields={title:clean(L.title||''),objective:'',teaching:'',resources:'',assessment:'',vocab:'',other:[]};
+        Object.entries(L.sections||{}).forEach(([label,val])=>{
+          const k=label.toLowerCase(), v=clean(val); if(!v)return;
+          if(/objective|scientific|skill/.test(k))fields.objective+=(fields.objective?'\n':'')+v;
+          else if(/teaching|activity|lesson content|notes/.test(k))fields.teaching+=(fields.teaching?'\n':'')+v;
+          else if(/resource|equipment/.test(k))fields.resources+=(fields.resources?'\n':'')+v;
+          else if(/assessment|plenary|next step/.test(k))fields.assessment+=(fields.assessment?'\n':'')+v;
+          else if(/vocab|key words?/.test(k))fields.vocab+=(fields.vocab?'\n':'')+v;
+          else fields.other.push(label+': '+v);
+        });
+        if(!fields.title){const hay=(fields.teaching+'\n'+fields.other.join('\n'));const m=hay.match(new RegExp('(?:^|\\n)\\s*L'+L.number+'\\s+([^\\n]{3,100})','i'));if(m)fields.title=clean(m[1]);}
+        const text=clean(Object.entries(L.sections||{}).map(([k,v])=>k+': '+v).join('\n'));
+        return {number:Number(L.number),title:fields.title,text,fields};
+      });
+    }
+    return extractLessonChunks(item.text);
+  }
+
   function lessonPreviewModal(item){
     q('#dpLessonPreviewModal')?.remove();
     const subject=clean(item.subject)||'Subject', mappings=readMappings(), mapped=Array.isArray(mappings[subject])?mappings[subject]:[];
     if(!mapped.length){mappingModal(item);return}
     const current=allTimetableSlots();
     const slots=mapped.map(m=>current.find(s=>s.day===m.day&&s.time===m.time)||m);
-    const chunks=extractLessonChunks(item.text);
+    const chunks=chunksForItem(item);
     const matches=slots.map(slot=>{let best=null,bestScore=-1;chunks.forEach(c=>{const sc=scoreChunk(c,slot,subject);if(sc>bestScore){best=c;bestScore=sc}});return {slot,chunk:bestScore>0?best:null,score:bestScore}});
     const ov=document.createElement('div');ov.id='dpLessonPreviewModal';ov.style.cssText='position:fixed;inset:0;background:#0006;z-index:100001;display:flex;align-items:center;justify-content:center;padding:18px';
     ov.innerHTML=`<div style="width:min(900px,96vw);max-height:92vh;overflow:auto;background:#fffdf9;border:1px solid #ded4c5;border-radius:28px;padding:26px;font-family:inherit;color:#332f2b"><div style="display:flex;justify-content:space-between;gap:16px"><div><div style="font-size:.78rem;letter-spacing:.16em;font-weight:800;color:#777">DAILY PLAN PREVIEW</div><h2 style="margin:6px 0 4px;font-size:2rem">${esc(subject)} planning match 🌼</h2><p style="margin:0;color:#6d6861">Daisy & Paws has compared your timetable with the saved planning. Check the match before adding anything to Daily Plan.</p></div><button data-x style="border:0;border-radius:50%;width:46px;height:46px;font-size:22px">×</button></div><div style="display:grid;gap:12px;margin-top:20px">${matches.map((m,i)=>`<div style="border:1px solid #e5dccf;border-radius:18px;padding:16px;background:white"><div style="font-weight:800">${esc(m.slot.day)} · ${esc(m.slot.time)} · ${esc(m.slot.label||subject)}</div>${m.chunk?`<div style="margin-top:8px;color:#5f5a54"><b>Matched planning:</b> Lesson ${m.chunk.number}${m.chunk.title?' · '+esc(m.chunk.title):''}</div><div style="margin-top:10px;padding:14px;border-radius:12px;background:#f7f3ec;max-height:360px;overflow:auto;line-height:1.45">${lessonPreviewHtml(m.chunk)}</div><button data-add-daily="${i}" style="margin-top:12px;border:0;border-radius:999px;padding:10px 15px;background:#b7c4a5;color:white;font-weight:800">Add this lesson to Daily Plan 🌼</button>`:`<div style="margin-top:8px;color:#8a6b54">No confident lesson match yet. Nothing will be added automatically.</div>`}</div>`).join('')}</div><div style="display:flex;justify-content:flex-end;margin-top:20px"><button data-x style="padding:11px 18px;border:1px solid #ded4c5;background:white;border-radius:999px">Close</button></div></div>`;
     document.body.appendChild(ov); ov.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>ov.remove()); ov.onclick=e=>{if(e.target===ov)ov.remove()};
-    ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const data=structuredLesson(m.chunk.text,lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject);const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
+    ov.querySelectorAll('[data-add-daily]').forEach(b=>b.onclick=()=>{const m=matches[+b.dataset.addDaily];if(!m?.chunk)return;const f=m.chunk.fields||parseLessonFields(m.chunk.text);const data={title:f.title||lessonTitleFromLabel(m.slot.label,subject)||m.chunk.title||subject,objective:f.objective||f.title||lessonTitleFromLabel(m.slot.label,subject)||subject,success:'',vocab:f.vocab||'',resources:f.resources||'',next:f.assessment||'',teaching:f.teaching||f.other?.join('\n')||''};const set=(name,val)=>{const el=document.querySelector(`[data-field="${name}"]`);if(el&&val){el.value=val;el.dispatchEvent(new Event('input',{bubbles:true}))}};set('lesson-objective',data.objective||data.title||m.chunk.text.slice(0,300));set('lesson-success',data.success);set('lesson-vocab',data.vocab);set('lesson-resources',data.resources);set('lesson-next',data.next);const date=q('#lessonDate');const target=dateForMappedSlot(m.slot);if(date&&target){date.value=target;date.dispatchEvent(new Event('change',{bubbles:true}))}ov.remove();alert('Lesson added to Daily Plan 🌼\n\nPlease check the imported details before teaching.');const nav=document.querySelector('[data-go="today"]');if(nav)nav.click()});
   }
 
   function install(){
     const input=q('#planningFile'), preview=q('#planningPreview'), host=q('#dpPlanningLibrary'); if(!input||!preview)return;
-    input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
+    input.addEventListener('change',async()=>{const f=input.files?.[0];if(!f)return;try{preview.value='Reading '+f.name+'…';dpLastStructuredPlan={lessons:[],sections:[]};preview.value=await readFile(f);input.dataset.dpSmartReady='1'}catch(e){console.error(e);preview.value='Daisy & Paws could not read this file. For PDF/Excel imports, an internet connection is needed the first time the reader loads.'}},true);
     const analyseBtn=q('#analysePlanningBtn'); if(analyseBtn) analyseBtn.addEventListener('click',()=>{const t=clean(preview.value);if(!t)return;const m=analyse(t,input.files?.[0]?.name);setTimeout(()=>modal(m,t,input.files?.[0]?.name,saveConfirmed),0)},true);
-    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
+    function saveConfirmed(meta){const items=read();items.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),...meta,fileName:input.files?.[0]?.name||'',text:clean(preview.value),lessons:Array.isArray(dpLastStructuredPlan.lessons)?dpLastStructuredPlan.lessons:[],savedAt:new Date().toISOString()});write(items);window.dispatchEvent(new Event('dp-planning-library-changed'));alert('Planning saved to your Planning Library 🌼')}
     // Replace V1 save action with confirmation workflow.
     setTimeout(()=>{const b=q('#dpSavePlanning');if(b)b.addEventListener('click',e=>{e.preventDefault();e.stopImmediatePropagation();const t=clean(preview.value);if(!t){alert('Choose a planning document first.');return}modal(analyse(t,input.files?.[0]?.name),t,input.files?.[0]?.name,saveConfirmed)},true)},50);
 
