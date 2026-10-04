@@ -1235,3 +1235,172 @@ window.addEventListener('dp-import-timetable', event => {
     console.error('Daisy & Paws timetable importer did not start:', error);
   }
 })();
+
+// ============================================================
+// DAISY & PAWS — PLANNING LIBRARY V1
+// Flexible storage for termly overviews, weekly plans and units.
+// This module is deliberately additive: it does not replace the
+// existing timetable or planning import code above.
+// ============================================================
+(() => {
+  const STORE_KEY = 'dp3:planningLibrary:v1';
+
+  function readLibrary() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
+    catch (_) { return []; }
+  }
+
+  function writeLibrary(items) {
+    localStorage.setItem(STORE_KEY, JSON.stringify(items));
+  }
+
+  function clean(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+
+  function analyse(text, fileName) {
+    const source = String(text || '');
+    const lower = source.toLowerCase();
+    let year = '';
+    const ym = source.match(/\byear\s*(?:group\s*)?(?:[:\-]\s*)?(one|two|three|four|five|six|[1-6])\b/i);
+    if (ym) {
+      const words = {one:1,two:2,three:3,four:4,five:5,six:6};
+      year = 'Year ' + (words[ym[1].toLowerCase()] || ym[1]);
+    }
+
+    const subjectDefs = [
+      ['Maths', /\b(?:maths|mathematics|white rose)\b/i],
+      ['English', /\b(?:english|writing|guided reading|phonics)\b/i],
+      ['Science', /\bscience\b|\bworking scientifically\b/i],
+      ['Geography', /\bgeography\b/i], ['History', /\bhistory\b/i],
+      ['RE', /\b(?:re|religious education)\b/i], ['PSHE', /\bpshe\b/i],
+      ['Computing', /\bcomputing\b/i], ['Music', /\bmusic\b/i],
+      ['PE', /\b(?:physical education|pe)\b/i], ['Art', /\bart\b/i],
+      ['DT', /\b(?:design technology|design & technology|dt)\b/i]
+    ];
+    let subject = '';
+    for (const [name, re] of subjectDefs) if (re.test(source)) { subject = name; break; }
+
+    let type = 'Other planning';
+    const weekdayHits = ['monday','tuesday','wednesday','thursday','friday'].filter(d => lower.includes(d)).length;
+    if (/\b(?:termly overview|term overview|curriculum overview|long[ -]?term plan)\b/i.test(source) || (/\bwk\s*1\b/i.test(source) && /\bwk\s*[5-9]\b/i.test(source))) type = 'Termly overview';
+    else if (/\bunit\s*:/i.test(source) || /\blesson\s*1\b/i.test(source) && /\blesson\s*[3-9]\b/i.test(source)) type = 'Unit / subject planning';
+    else if (/\b(?:week beginning|week commencing|w\/?b)\b/i.test(source) || weekdayHits >= 3) type = 'Weekly planning';
+    else if (/\blesson\s*(?:plan|objective|focus)\b/i.test(source)) type = 'Individual lesson plan';
+
+    let week = '';
+    const wm = source.match(/\b(?:week beginning|week commencing|w\/?b)\s*:?\s*([^\n|]{3,40})/i) || source.match(/\bWk\s*(\d+)\b/i);
+    if (wm) week = clean(wm[1]);
+
+    let title = clean(fileName || 'Planning document').replace(/\.(docx|doc|txt)$/i, '');
+    const unit = source.match(/\bUnit\s*:\s*([^\n|]{3,80})/i);
+    if (unit) title = clean(unit[1]);
+
+    return { year, subject, type, week, title };
+  }
+
+  function extractDays(text) {
+    const src = String(text || '').replace(/\r/g, '\n');
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+    const out = {};
+    days.forEach((day, i) => {
+      const next = days[i + 1];
+      const re = next
+        ? new RegExp('\\b' + day + '\\b\\s*:?\\s*([\\s\\S]*?)(?=\\b' + next + '\\b)', 'i')
+        : new RegExp('\\b' + day + '\\b\\s*:?\\s*([\\s\\S]*)$', 'i');
+      const m = src.match(re);
+      if (m && m[1]) out[day] = m[1].trim();
+    });
+    return out;
+  }
+
+  function esc(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function mount() {
+    const preview = document.querySelector('#planningPreview');
+    const fileInput = document.querySelector('#planningFile');
+    if (!preview || !fileInput || document.querySelector('#dpPlanningLibrary')) return;
+
+    const host = document.createElement('section');
+    host.id = 'dpPlanningLibrary';
+    host.style.cssText = 'margin-top:22px;padding:20px;border:1px solid #ded4c5;border-radius:22px;background:#fffdf9;';
+    host.innerHTML = `
+      <div style="display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+        <div><h2 style="margin:0 0 5px;font-size:1.35rem;">Planning Library 🌼</h2>
+        <div style="color:#6d6861;">Keep different schools' planning formats together without forcing one template.</div></div>
+        <button type="button" id="dpSavePlanning" style="border:0;border-radius:999px;padding:12px 18px;background:#b7c4a5;color:white;font-weight:700;cursor:pointer;">Save this planning 🌼</button>
+      </div>
+      <div id="dpPlanningLibraryList" style="margin-top:16px;"></div>`;
+    preview.insertAdjacentElement('afterend', host);
+
+    const render = () => {
+      const list = host.querySelector('#dpPlanningLibraryList');
+      const items = readLibrary();
+      if (!items.length) {
+        list.innerHTML = '<div style="padding:14px;border-radius:16px;background:#f7f3ec;color:#6d6861;">No saved planning yet. Upload a document above, check the preview, then choose <b>Save this planning</b>.</div>';
+        return;
+      }
+      list.innerHTML = items.map((item, index) => `
+        <div style="padding:14px 0;${index ? 'border-top:1px solid #ece4d9;' : ''}">
+          <div style="display:flex;gap:12px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;">
+            <div style="min-width:220px;flex:1;">
+              <div style="font-weight:800;">${esc(item.title)}</div>
+              <div style="margin-top:4px;color:#6d6861;font-size:.93rem;">${esc([item.type,item.subject,item.year,item.week].filter(Boolean).join(' · '))}</div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" data-dp-open="${item.id}" style="border:1px solid #ded4c5;background:white;border-radius:999px;padding:8px 12px;cursor:pointer;">Open</button>
+              ${item.type === 'Weekly planning' ? `<button type="button" data-dp-week="${item.id}" style="border:0;background:#b7c4a5;color:white;border-radius:999px;padding:8px 12px;font-weight:700;cursor:pointer;">Use for this week</button>` : ''}
+              <button type="button" data-dp-delete="${item.id}" style="border:1px solid #ded4c5;background:white;border-radius:999px;padding:8px 12px;cursor:pointer;">Remove</button>
+            </div>
+          </div>
+        </div>`).join('');
+    };
+
+    host.querySelector('#dpSavePlanning').addEventListener('click', () => {
+      const text = preview.value.trim();
+      if (!text) { alert('Choose a planning document first.'); return; }
+      const meta = analyse(text, fileInput.files?.[0]?.name || 'Planning document');
+      const items = readLibrary();
+      items.unshift({ id: Date.now().toString(36) + Math.random().toString(36).slice(2,7), ...meta, fileName:fileInput.files?.[0]?.name || '', text, savedAt:new Date().toISOString() });
+      writeLibrary(items.slice(0, 80));
+      render();
+      alert('Planning saved to your Planning Library 🌼');
+    });
+
+    host.addEventListener('click', e => {
+      const open = e.target.closest('[data-dp-open]');
+      const del = e.target.closest('[data-dp-delete]');
+      const use = e.target.closest('[data-dp-week]');
+      const items = readLibrary();
+      if (open) {
+        const item = items.find(x => x.id === open.dataset.dpOpen);
+        if (item) { preview.value = item.text; preview.scrollIntoView({behavior:'smooth',block:'center'}); }
+      }
+      if (del) {
+        const item = items.find(x => x.id === del.dataset.dpDelete);
+        if (item && confirm('Remove “' + item.title + '” from the Planning Library?')) {
+          writeLibrary(items.filter(x => x.id !== item.id)); render();
+        }
+      }
+      if (use) {
+        const item = items.find(x => x.id === use.dataset.dpWeek);
+        if (!item) return;
+        const byDay = extractDays(item.text);
+        const boxes = Array.from(document.querySelectorAll('#weekGrid textarea[data-w]'));
+        const days = ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+        const found = days.filter(d => byDay[d]).length;
+        if (!found) { alert('This plan is saved, but Daisy & Paws could not safely find Monday–Friday sections to place into Daily Planning. Nothing has been changed.'); return; }
+        if (!confirm('Daisy & Paws found ' + found + ' day sections. Add them to the currently displayed week?')) return;
+        days.forEach((day, i) => {
+          if (!boxes[i] || !byDay[day]) return;
+          boxes[i].value = byDay[day];
+          save(boxes[i].dataset.w, byDay[day]);
+        });
+        alert('The recognised day sections have been added to this week 🌼');
+      }
+    });
+
+    render();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+  else mount();
+})();
